@@ -13,7 +13,7 @@ export function buildDemoDocumentJson(): string {
   const sceneId = crypto.randomUUID();
 
   const doc = {
-    id: { Uuid: crypto.randomUUID() },
+    id: crypto.randomUUID(),
     metadata: {
       title: "Demo Presentation",
       author: null,
@@ -24,16 +24,16 @@ export function buildDemoDocumentJson(): string {
     },
     tokens: {
       tokens: {
-        "color.text.primary": { Scalar: "#FFFFFF" },
-        "color.text.secondary": { Scalar: "#AAAAAA" },
-        "color.brand": { Scalar: "#EC6602" },
-        "color.background": { Scalar: "#0D0D0F" },
-        "typography.display.font": { Scalar: "Inter, system-ui, sans-serif" },
-        "typography.display.size": { Scalar: 48 },
-        "typography.body.font": { Scalar: "Inter, system-ui, sans-serif" },
-        "typography.body.size": { Scalar: 20 },
-        "motion.duration.normal": { Scalar: "420ms" },
-        "spacing.md": { Scalar: 16 },
+        "color.text.primary": "#FFFFFF",
+        "color.text.secondary": "#AAAAAA",
+        "color.brand": "#EC6602",
+        "color.background": "#0D0D0F",
+        "typography.display.font": "Inter, system-ui, sans-serif",
+        "typography.display.size": 48,
+        "typography.body.font": "Inter, system-ui, sans-serif",
+        "typography.body.size": 20,
+        "motion.duration.normal": "420ms",
+        "spacing.md": 16,
       },
       modes: { theme: "dark", medium: "live", audience: null },
     },
@@ -47,15 +47,15 @@ export function buildDemoDocumentJson(): string {
     },
     scenes: [
       {
-        id: { Uuid: sceneId },
+        id: sceneId,
         name: "Title Scene",
-        root: { Uuid: rootId },
+        root: rootId,
         camera: { x: 0, y: 0, zoom: 1.0, rotation: 0 },
         steps: [
           {
-            id: { Uuid: crypto.randomUUID() },
+            id: crypto.randomUUID(),
             name: "Reveal subtitle",
-            commands: [{ type: "reveal", target: { Uuid: subtitleId } }],
+            commands: [{ type: "reveal", target: subtitleId }],
             transition: { preset: null, duration_policy: "auto" },
             notes: "Pause here for questions.",
           },
@@ -64,8 +64,8 @@ export function buildDemoDocumentJson(): string {
       },
     ],
     nodes: {
-      [rootId]: makeFrameNode(rootId, "Root", null, 0, 0, 1920, 1080, "#0D0D0F"),
-      [rectId]: makeShapeNode(rectId, "Accent Bar", rootId, 120, 460, 8, 160, "#EC6602"),
+      [rootId]: makeFrameNode(rootId, "Root", null, 0, 0, 1920, 1080, "color.background"),
+      [rectId]: makeShapeNode(rectId, "Accent Bar", rootId, 120, 460, 8, 160, "color.brand"),
       [titleId]: makeTextNode(
         titleId, "Title", rootId,
         160, 440,
@@ -82,7 +82,7 @@ export function buildDemoDocumentJson(): string {
 
   // Set root's children list.
   (doc.nodes as Record<string, unknown>)[rootId] = makeFrameNode(
-    rootId, "Root", null, 0, 0, 1920, 1080, "#0D0D0F",
+    rootId, "Root", null, 0, 0, 1920, 1080, "color.background",
     [rectId, titleId, subtitleId],
   );
 
@@ -97,18 +97,18 @@ function makeTransform(x: number, y: number, w: number, h: number) {
 
 function makeFrameNode(
   id: string, name: string, parent: string | null,
-  x: number, y: number, w: number, h: number, bgColor: string,
+  x: number, y: number, w: number, h: number, bgToken: string,
   children: string[] = [],
 ) {
   return {
-    id: { Uuid: id },
+    id,
     name,
-    parent: parent ? { Uuid: parent } : null,
-    children: children.map((c) => ({ Uuid: c })),
+    parent,
+    children,
     transform: makeTransform(x, y, w, h),
     style: {
       opacity: 1.0,
-      fill: bgColor,
+      fill: { path: bgToken },
       stroke: null,
       stroke_width: null,
       blur_radius: null,
@@ -125,17 +125,17 @@ function makeFrameNode(
 
 function makeShapeNode(
   id: string, name: string, parent: string | null,
-  x: number, y: number, w: number, h: number, fill: string,
+  x: number, y: number, w: number, h: number, fillToken: string,
 ) {
   return {
-    id: { Uuid: id },
+    id,
     name,
-    parent: parent ? { Uuid: parent } : null,
+    parent,
     children: [],
     transform: makeTransform(x, y, w, h),
     style: {
       opacity: 1.0,
-      fill,
+      fill: { path: fillToken },
       stroke: null,
       stroke_width: null,
       blur_radius: null,
@@ -146,7 +146,7 @@ function makeShapeNode(
     semantic: { role: null, label: null },
     visible: true,
     locked: false,
-    data: { type: "shape", kind: { type: "rectangle" } },
+    data: { type: "shape", kind: "rectangle" },
   };
 }
 
@@ -156,9 +156,9 @@ function makeTextNode(
   content: string, colorToken: string, fontToken: string, sizeToken: string,
 ) {
   return {
-    id: { Uuid: id },
+    id,
     name,
-    parent: parent ? { Uuid: parent } : null,
+    parent,
     children: [],
     transform: makeTransform(x, y, 1600, 80),
     style: {

@@ -57,26 +57,32 @@ Run the following from `/home/runner/work/motion/motion`:
    cargo build --workspace --locked
    ```
 
-2. Build the real WASM package consumed by the UI:
+2. Install `wasm-bindgen` locally (one-time):
 
    ```sh
-   wasm-pack build crates/motion-wasm --target web
+   cargo install wasm-bindgen-cli --locked
    ```
 
-3. Install UI dependencies:
+3. Build the real WASM package consumed by the UI:
+
+   ```sh
+   wasm-pack build crates/motion-wasm --target web --mode no-install
+   ```
+
+4. Install UI dependencies:
 
    ```sh
    cd apps/motion-ui
    npm ci
    ```
 
-4. Start the editor dev server:
+5. Start the editor dev server:
 
    ```sh
    npm run dev
    ```
 
-If you change Rust/WASM code, rerun `wasm-pack build crates/motion-wasm --target web` before refreshing the UI so `crates/motion-wasm/pkg/` stays in sync with the app.
+If you change Rust/WASM code, rerun `wasm-pack build crates/motion-wasm --target web --mode no-install` before refreshing the UI so `crates/motion-wasm/pkg/` stays in sync with the app.
 
 ### Local validation
 
@@ -85,7 +91,7 @@ Use the same commands as CI before pushing changes:
 ```sh
 cargo build --workspace --locked
 cargo test --workspace --locked
-wasm-pack build crates/motion-wasm --target web
+wasm-pack build crates/motion-wasm --target web --mode no-install
 cd apps/motion-ui && npm run typecheck && npm run build
 ```
 

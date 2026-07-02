@@ -399,8 +399,8 @@ function refreshInspector(container: HTMLElement): void {
       const value = getControlValue(control);
       const command = {
         type: "set_property",
-        scene_id: { Uuid: inspector.scene_id },
-        node_id: { Uuid: selected.id },
+        scene_id: inspector.scene_id,
+        node_id: selected.id,
         property,
         value,
       };
