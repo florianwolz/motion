@@ -7,6 +7,10 @@
  *
  * The renderer consumes the JSON `RenderTree` produced by the WASM engine's
  * `render()` method and issues Canvas 2D draw calls accordingly.
+ *
+ * Nodes are drawn in draw-pass order (shape → image/video → text → shadow →
+ * blur → mask → glass → particles → composite → color-grade) so that effects
+ * are correctly layered even in the Canvas fallback path.
  */
 
 // ─── Types mirroring motion-render RenderTree JSON ────────────────────────────
@@ -62,6 +66,23 @@ export type ResolvedMaterial =
   | { type: "matte_card"; background: RgbaColor; corner_radius: number; shadow_color: RgbaColor; shadow_blur: number; shadow_offset_y: number }
   | { type: "glow"; color: RgbaColor; radius: number; intensity: number };
 
+/**
+ * Draw pass assigned to each node by the Rust render-tree builder.
+ * Matches the `DrawPass` enum in `motion-render/src/passes.rs`.
+ * Lower numeric rank = drawn first (back of stack).
+ */
+export type DrawPass =
+  | "shape"
+  | "image_video"
+  | "text"
+  | "shadow"
+  | "blur"
+  | "mask"
+  | "glass"
+  | "particles"
+  | "composite"
+  | "color_grade";
+
 export interface RenderNode {
   id: string;
   transform: RenderTransform;
@@ -72,6 +93,8 @@ export interface RenderNode {
   material: ResolvedMaterial | null;
   blur_radius: number;
   clip: boolean;
+  /** Render pass assigned by the Rust engine. Used to order draw calls correctly. */
+  draw_pass: DrawPass;
 }
 
 export interface RenderTree {
@@ -80,6 +103,88 @@ export interface RenderTree {
   viewport_width: number;
   viewport_height: number;
   device_pixel_ratio: number;
+}
+
+// ─── Render tier detection ────────────────────────────────────────────────────
+
+/**
+ * The three render tiers described in the architecture plan.
+ * Mirrors `RenderTier` in `motion-render/src/passes.rs`.
+ */
+export type RenderTier = "web_gpu" | "web_gl2" | "canvas";
+
+/**
+ * Detect the best render tier available in the current browser.
+ *
+ * - `web_gpu`  — WebGPU is available (Tier 1, full effects).
+ * - `web_gl2`  — WebGL2 is available (Tier 2, reduced effects).
+ * - `canvas`   — Canvas 2D fallback (Tier 3, minimal effects).
+ */
+export function detectRenderTier(): RenderTier {
+  if (typeof navigator !== "undefined" && "gpu" in navigator) {
+    return "web_gpu";
+  }
+  if (typeof document !== "undefined") {
+    const probe = document.createElement("canvas");
+    if (probe.getContext("webgl2")) return "web_gl2";
+  }
+  return "canvas";
+}
+
+// ─── Draw-pass ordering ───────────────────────────────────────────────────────
+
+/** Numeric rank for each draw pass — lower = drawn first. */
+const PASS_RANK: Record<DrawPass, number> = {
+  shape: 0,
+  image_video: 1,
+  text: 2,
+  shadow: 3,
+  blur: 4,
+  mask: 5,
+  glass: 6,
+  particles: 7,
+  composite: 8,
+  color_grade: 9,
+};
+
+/**
+ * Return the draw-order rank of a node's assigned pass.
+ * Exported for unit testing.
+ */
+export function drawPassRank(pass: DrawPass): number {
+  return PASS_RANK[pass] ?? 0;
+}
+
+// ─── Pure helper utilities ────────────────────────────────────────────────────
+
+/**
+ * Convert an RGBA color (0.0–1.0 components) to a CSS `rgba(…)` string.
+ * Exported for unit testing.
+ */
+export function toCssColor(c: RgbaColor): string {
+  const r = Math.round(c.r * 255);
+  const g = Math.round(c.g * 255);
+  const b = Math.round(c.b * 255);
+  return `rgba(${r},${g},${b},${c.a.toFixed(3)})`;
+}
+
+/**
+ * Build an O(1) node-lookup map from an array of render nodes.
+ * Exported for unit testing.
+ */
+export function buildNodeMap(nodes: RenderNode[]): Map<string, RenderNode> {
+  return new Map(nodes.map((n) => [n.id, n]));
+}
+
+/**
+ * Return a stable-sorted copy of the nodes array ordered by draw pass.
+ * Within the same pass, original array order is preserved.
+ * Exported for unit testing.
+ */
+export function sortNodesByPass(nodes: RenderNode[]): RenderNode[] {
+  return [...nodes].sort(
+    (a, b) => drawPassRank(a.draw_pass) - drawPassRank(b.draw_pass)
+  );
 }
 
 // ─── Image cache ──────────────────────────────────────────────────────────────
@@ -94,15 +199,6 @@ function loadImage(uri: string): HTMLImageElement | null {
   img.onload = () => imageCache.set(uri, img);
   imageCache.set(uri, img);
   return img;
-}
-
-// ─── Color helpers ────────────────────────────────────────────────────────────
-
-function toCssColor(c: RgbaColor): string {
-  const r = Math.round(c.r * 255);
-  const g = Math.round(c.g * 255);
-  const b = Math.round(c.b * 255);
-  return `rgba(${r},${g},${b},${c.a.toFixed(3)})`;
 }
 
 // ─── Canvas2DRenderer ─────────────────────────────────────────────────────────
@@ -127,7 +223,7 @@ export class Canvas2DRenderer {
     this.ctx.scale(dpr, dpr);
   }
 
-  /** Draw a complete render tree. */
+  /** Draw a complete render tree, processing nodes in draw-pass order. */
   draw(tree: RenderTree): void {
     const { ctx } = this;
     const cssW = tree.viewport_width;
@@ -141,11 +237,18 @@ export class Canvas2DRenderer {
     ctx.clearRect(0, 0, cssW, cssH);
 
     // Build a lookup map for O(1) node access.
-    const nodeMap = new Map<string, RenderNode>(tree.nodes.map((n) => [n.id, n]));
+    const nodeMap = buildNodeMap(tree.nodes);
 
-    for (const rootId of tree.roots) {
-      const root = nodeMap.get(rootId);
-      if (root) this.drawNode(root, nodeMap, cssW, cssH);
+    // Sort visible nodes by their assigned draw pass before traversing roots.
+    // Within each pass, the tree's depth-first back-to-front insertion order
+    // is preserved (stable sort).
+    const sortedRoots = tree.roots
+      .map((id) => nodeMap.get(id))
+      .filter((n): n is RenderNode => n !== undefined)
+      .sort((a, b) => drawPassRank(a.draw_pass) - drawPassRank(b.draw_pass));
+
+    for (const root of sortedRoots) {
+      this.drawNode(root, nodeMap, cssW, cssH);
     }
   }
 
@@ -188,10 +291,14 @@ export class Canvas2DRenderer {
     // Reset filter before drawing children.
     ctx.filter = "none";
 
-    // Recurse into children.
-    for (const childId of node.children) {
-      const child = nodeMap.get(childId);
-      if (child) this.drawNode(child, nodeMap, vpW, vpH);
+    // Recurse into children, sorted by their draw pass.
+    const children = node.children
+      .map((id) => nodeMap.get(id))
+      .filter((n): n is RenderNode => n !== undefined)
+      .sort((a, b) => drawPassRank(a.draw_pass) - drawPassRank(b.draw_pass));
+
+    for (const child of children) {
+      this.drawNode(child, nodeMap, vpW, vpH);
     }
 
     ctx.restore();
