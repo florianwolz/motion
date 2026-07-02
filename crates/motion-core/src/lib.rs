@@ -1,6 +1,7 @@
 //! motion-core — document model, scene graph, tokens, commands, layout, and animation engine.
 
 pub mod animation;
+pub mod brand;
 pub mod command;
 pub mod document;
 pub mod engine;

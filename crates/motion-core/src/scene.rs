@@ -62,12 +62,25 @@ impl Default for CameraState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PresentationCommand {
-    Focus { target: NodeId },
-    Highlight { target: NodeId },
-    DimOthers { target: NodeId },
-    Reveal { target: NodeId },
-    Hide { target: NodeId },
-    Morph { from: NodeId, to: NodeId },
+    Focus {
+        target: NodeId,
+    },
+    Highlight {
+        target: NodeId,
+    },
+    DimOthers {
+        target: NodeId,
+    },
+    Reveal {
+        target: NodeId,
+    },
+    Hide {
+        target: NodeId,
+    },
+    Morph {
+        from: NodeId,
+        to: NodeId,
+    },
     SetProperty {
         node: NodeId,
         property: String,
