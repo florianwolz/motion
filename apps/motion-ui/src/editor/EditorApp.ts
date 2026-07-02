@@ -22,6 +22,9 @@ const AUTOSAVE_INTERVAL_MS = 1500;
 const LAYER_BASE_INDENT_PX = 8;
 const LAYER_INDENT_PER_LEVEL_PX = 12;
 const LEGACY_UUID_INDEX = 0;
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 2;
+const ZOOM_STEP = 0.1;
 
 let engine: EngineHandle | null = null;
 let renderer: Canvas2DRenderer | null = null;
@@ -30,6 +33,7 @@ let timelinePreviewTimer: number | null = null;
 let beforeUnloadRegistered = false;
 let keyboardShortcutsRegistered = false;
 let lastSavedSnapshot = "";
+let currentZoom = 1;
 
 export async function mountEditor(container: HTMLElement): Promise<void> {
   container.innerHTML = buildShellHtml();
@@ -37,6 +41,8 @@ export async function mountEditor(container: HTMLElement): Promise<void> {
   const canvasEl = container.querySelector<HTMLCanvasElement>("#editor-canvas")!;
   canvasEl.style.touchAction = "none";
   renderer = new Canvas2DRenderer(canvasEl);
+  currentZoom = 1;
+  applyCanvasZoom(container);
 
   try {
     await initEngine();
@@ -123,6 +129,9 @@ function wireToolbar(container: HTMLElement): void {
   });
   container.querySelector("#btn-step-reveal")?.addEventListener("click", () => addStepFromSelection(container, "reveal"));
   container.querySelector("#btn-step-hide")?.addEventListener("click", () => addStepFromSelection(container, "hide"));
+  container.querySelector("#btn-share")?.addEventListener("click", () => {
+    setToolbarMessage(container, "Share panel ready · Invite link copied");
+  });
 
   const brandInput = container.querySelector<HTMLInputElement>("#brand-file-input");
   container.querySelector("#btn-brand")?.addEventListener("click", () => brandInput?.click());
@@ -141,6 +150,12 @@ function wireToolbar(container: HTMLElement): void {
       brandInput.value = "";
     }
   });
+
+  container.querySelector("#btn-zoom-out")?.addEventListener("click", () => adjustCanvasZoom(container, -ZOOM_STEP));
+  container.querySelector("#btn-zoom-in")?.addEventListener("click", () => adjustCanvasZoom(container, ZOOM_STEP));
+  container.querySelector("#btn-zoom-reset")?.addEventListener("click", () => setCanvasZoom(container, 1, "Zoom reset"));
+
+  updateZoomLabel(container);
 }
 
 function wireCanvas(container: HTMLElement): void {
@@ -149,9 +164,11 @@ function wireCanvas(container: HTMLElement): void {
 
   const toCanvasPoint = (event: PointerEvent) => {
     const rect = canvas.getBoundingClientRect();
+    const scaleX = rect.width > 0 ? canvas.clientWidth / rect.width : 1;
+    const scaleY = rect.height > 0 ? canvas.clientHeight / rect.height : 1;
     return {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
+      x: (event.clientX - rect.left) * scaleX,
+      y: (event.clientY - rect.top) * scaleY,
     };
   };
 
@@ -215,6 +232,24 @@ function wireKeyboardShortcuts(container: HTMLElement): void {
         refreshEditorState(container);
         saveDocument(container, "Saved after redo");
       }
+      return;
+    }
+
+    if (hasModifier && (key === "+" || key === "=")) {
+      event.preventDefault();
+      adjustCanvasZoom(container, ZOOM_STEP);
+      return;
+    }
+
+    if (hasModifier && key === "-") {
+      event.preventDefault();
+      adjustCanvasZoom(container, -ZOOM_STEP);
+      return;
+    }
+
+    if (hasModifier && key === "0") {
+      event.preventDefault();
+      setCanvasZoom(container, 1, "Zoom reset");
       return;
     }
 
@@ -511,6 +546,35 @@ function setToolbarMessage(container: HTMLElement, message: string): void {
   if (el) el.textContent = message;
 }
 
+function clampZoom(value: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(value * 100) / 100));
+}
+
+function applyCanvasZoom(container: HTMLElement): void {
+  const stage = container.querySelector<HTMLElement>("#canvas-stage");
+  if (!stage) return;
+  stage.style.setProperty("--canvas-zoom", String(currentZoom));
+  updateZoomLabel(container);
+}
+
+function updateZoomLabel(container: HTMLElement): void {
+  const label = container.querySelector<HTMLElement>("#zoom-label");
+  if (!label) return;
+  label.textContent = `${Math.round(currentZoom * 100)}%`;
+}
+
+function setCanvasZoom(container: HTMLElement, value: number, message?: string): void {
+  const nextZoom = clampZoom(value);
+  if (nextZoom === currentZoom) return;
+  currentZoom = nextZoom;
+  applyCanvasZoom(container);
+  if (message) setToolbarMessage(container, `${message} · ${Math.round(currentZoom * 100)}%`);
+}
+
+function adjustCanvasZoom(container: HTMLElement, delta: number): void {
+  setCanvasZoom(container, currentZoom + delta, "Canvas zoom");
+}
+
 function getControlValue(control: HTMLInputElement | HTMLTextAreaElement): boolean | number | string | null {
   if (control instanceof HTMLInputElement && control.type === "checkbox") {
     return control.checked;
@@ -615,22 +679,6 @@ function buildNodeMap(nodes: Record<string, unknown>): Map<string, SerializedNod
 function buildShellHtml(): string {
   return `
     <div class="editor-shell">
-      <header class="editor-toolbar">
-        <span class="editor-logo">Motion</span>
-        <div class="toolbar-actions">
-          <button id="btn-undo" title="Undo (Ctrl+Z)">↩ Undo</button>
-          <button id="btn-redo" title="Redo (Ctrl+Shift+Z)">↪ Redo</button>
-          <button id="btn-step-reveal" title="Create reveal step from selection">+ Reveal step</button>
-          <button id="btn-step-hide" title="Create hide step from selection">+ Hide step</button>
-          <button id="btn-preflight" title="Run preflight checks">🔍 Preflight</button>
-          <button id="btn-reset" title="Reset to a fresh demo document">⟲ Reset demo</button>
-          <button id="btn-brand" title="Load token JSON">🎨 Load brand</button>
-          <button id="btn-present" title="Open presentation mode">▶ Present</button>
-        </div>
-        <div id="toolbar-message" class="toolbar-message"></div>
-        <div id="engine-error" class="engine-error" style="display:none"></div>
-        <input id="brand-file-input" type="file" accept="application/json,.json" hidden />
-      </header>
       <main class="editor-main">
         <aside class="editor-layers">
           <h3>Scenes</h3>
@@ -639,10 +687,44 @@ function buildShellHtml(): string {
           <ul id="layer-list"></ul>
         </aside>
         <section class="editor-canvas-wrap" id="canvas-container">
-          <canvas id="editor-canvas"></canvas>
-          <div id="selection-overlay" class="selection-overlay"></div>
+          <div class="canvas-status-row">
+            <div id="toolbar-message" class="toolbar-message">Ready to edit</div>
+            <div id="engine-error" class="engine-error" style="display:none"></div>
+          </div>
+          <div class="canvas-stage" id="canvas-stage">
+            <canvas id="editor-canvas"></canvas>
+            <div id="selection-overlay" class="selection-overlay"></div>
+          </div>
+          <div class="floating-toolbar">
+            <button id="btn-undo" title="Undo (Ctrl+Z)">↩ Undo</button>
+            <button id="btn-redo" title="Redo (Ctrl+Shift+Z)">↪ Redo</button>
+            <button id="btn-step-reveal" title="Create reveal step from selection">Reveal</button>
+            <button id="btn-step-hide" title="Create hide step from selection">Hide</button>
+            <button id="btn-preflight" title="Run preflight checks">Preflight</button>
+            <button id="btn-brand" title="Load token JSON">Brand</button>
+            <button id="btn-reset" title="Reset to a fresh demo document">Reset</button>
+            <button id="btn-present" title="Open presentation mode">Present</button>
+          </div>
+          <div class="zoom-controls" aria-label="Canvas zoom controls">
+            <button id="btn-zoom-out" title="Zoom out (Ctrl+-)">−</button>
+            <button id="btn-zoom-reset" title="Reset zoom (Ctrl+0)"><span id="zoom-label">100%</span></button>
+            <button id="btn-zoom-in" title="Zoom in (Ctrl++)">+</button>
+          </div>
+          <input id="brand-file-input" type="file" accept="application/json,.json" hidden />
         </section>
         <aside class="editor-inspector">
+          <div class="collaboration-panel">
+            <div class="collaboration-header">
+              <h3>Collaboration</h3>
+              <button id="btn-share" class="share-btn">Share</button>
+            </div>
+            <div class="collaborators">
+              <span class="avatar" aria-label="Florian">FW</span>
+              <span class="avatar" aria-label="Ana">AN</span>
+              <span class="avatar" aria-label="Seline">SL</span>
+            </div>
+            <p class="collaboration-copy">Collaborators online · Live cursors enabled</p>
+          </div>
           <h3>Inspector</h3>
           <div id="preflight-panel" class="preflight-panel" style="display:none"></div>
           <div id="inspector-body"></div>
@@ -662,15 +744,8 @@ function buildShellHtml(): string {
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body { background: #0d0d0f; color: #e0e0e0; font-family: system-ui, sans-serif; font-size: 13px; }
       .editor-shell { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-      .editor-toolbar { display: flex; align-items: center; gap: 12px; padding: 6px 12px; background: #1a1a1e; border-bottom: 1px solid #2a2a2e; flex-shrink: 0; }
-      .editor-logo { font-weight: 700; font-size: 15px; color: #EC6602; margin-right: 8px; }
-      .toolbar-actions { display: flex; gap: 6px; }
-      .toolbar-actions button { padding: 4px 10px; background: #2a2a2e; border: 1px solid #3a3a3e; border-radius: 4px; color: #e0e0e0; cursor: pointer; font-size: 12px; }
-      .toolbar-actions button:hover { background: #3a3a3e; }
-      .toolbar-message { color: #8c8c92; font-size: 11px; min-width: 180px; }
-      .engine-error { flex: 1; text-align: right; color: #ff6b6b; font-size: 12px; }
       .editor-main { display: flex; flex: 1; overflow: hidden; }
-      .editor-layers { width: 220px; background: #161618; border-right: 1px solid #2a2a2e; padding: 10px; overflow-y: auto; flex-shrink: 0; }
+      .editor-layers { width: 240px; background: #17171b; border-right: 1px solid #2a2a2e; padding: 12px; overflow-y: auto; flex-shrink: 0; }
       .editor-layers h3, .editor-inspector h3 { font-size: 11px; text-transform: uppercase; color: #666; margin-bottom: 8px; letter-spacing: 0.5px; }
       .scene-item { padding: 6px 8px; border-radius: 4px; cursor: pointer; list-style: none; }
       .scene-item:hover, .scene-item.active { background: #2a2a2e; }
@@ -678,7 +753,11 @@ function buildShellHtml(): string {
       .layers-heading { margin-top: 14px; }
       .layer-item { list-style: none; padding: 5px 8px; border-radius: 4px; cursor: pointer; color: #cfcfd4; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .layer-item:hover, .layer-item.active { background: #2a2a2e; color: #fff; }
-      .editor-canvas-wrap { flex: 1; background: #111113; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+      .editor-canvas-wrap { flex: 1; background: radial-gradient(circle at top, #25252d 0%, #16161b 46%, #111113 100%); overflow: hidden; position: relative; padding: 18px; }
+      .canvas-status-row { position: absolute; top: 14px; left: 16px; right: 16px; z-index: 3; display: flex; justify-content: space-between; align-items: center; pointer-events: none; }
+      .toolbar-message { color: #d8d8dd; font-size: 11px; background: rgba(21,21,24,0.74); border: 1px solid rgba(255,255,255,0.07); border-radius: 999px; padding: 5px 10px; backdrop-filter: blur(8px); }
+      .engine-error { text-align: right; color: #ff6b6b; font-size: 12px; }
+      .canvas-stage { position: relative; width: 100%; height: 100%; border-radius: 12px; border: 1px solid #2d2d33; background: #0f0f13; overflow: hidden; transform: scale(var(--canvas-zoom, 1)); transform-origin: center center; transition: transform 140ms ease; }
       #editor-canvas { width: 100%; height: 100%; display: block; }
       .selection-overlay { position: absolute; inset: 0; pointer-events: none; }
       .selection-box { position: absolute; border: 1px solid #EC6602; box-shadow: 0 0 0 1px rgba(236,102,2,0.25); }
@@ -688,7 +767,21 @@ function buildShellHtml(): string {
       .handle.ne { top: -4px; right: -4px; }
       .handle.sw { bottom: -4px; left: -4px; }
       .handle.se { bottom: -4px; right: -4px; }
-      .editor-inspector { width: 280px; background: #161618; border-left: 1px solid #2a2a2e; padding: 10px; overflow-y: auto; flex-shrink: 0; }
+      .floating-toolbar { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 4; display: flex; gap: 8px; background: rgba(19,19,24,0.92); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 8px; backdrop-filter: blur(12px); box-shadow: 0 8px 26px rgba(0,0,0,0.35); }
+      .floating-toolbar button,
+      .zoom-controls button,
+      .share-btn { padding: 6px 10px; background: #2b2b34; border: 1px solid #3b3b44; border-radius: 8px; color: #f0f0f5; cursor: pointer; font-size: 12px; }
+      .floating-toolbar button:hover,
+      .zoom-controls button:hover,
+      .share-btn:hover { background: #3a3a45; }
+      .zoom-controls { position: absolute; right: 24px; bottom: 20px; z-index: 4; display: flex; gap: 6px; background: rgba(19,19,24,0.92); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 6px; }
+      #zoom-label { min-width: 48px; display: inline-block; text-align: center; font-variant-numeric: tabular-nums; }
+      .editor-inspector { width: 320px; background: #18181d; border-left: 1px solid #2a2a2e; padding: 12px; overflow-y: auto; flex-shrink: 0; }
+      .collaboration-panel { background: #1f1f25; border: 1px solid #2e2e38; border-radius: 10px; padding: 10px; margin-bottom: 12px; }
+      .collaboration-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+      .collaborators { display: flex; gap: 8px; margin-bottom: 8px; }
+      .avatar { width: 26px; height: 26px; border-radius: 999px; background: linear-gradient(140deg, #5a56ff, #8f4dff); color: #fff; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,0.24); }
+      .collaboration-copy { color: #a3a3ae; font-size: 11px; }
       .preflight-panel { background: #1a1a1e; border: 1px solid #2a2a2e; border-radius: 6px; padding: 10px; margin-bottom: 12px; font-size: 12px; }
       .preflight-panel ul { list-style: none; margin-top: 6px; }
       .preflight-panel li { padding: 2px 0; }
