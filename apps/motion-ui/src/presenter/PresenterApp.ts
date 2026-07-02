@@ -13,6 +13,7 @@ import { initEngine, createEngine, parseRenderTree, parsePreflight, parsePositio
 import { isSupportedSavedDocument } from "../lib/documentState.js";
 import type { EngineHandle } from "../lib/engine.js";
 import { Canvas2DRenderer } from "../lib/renderer.js";
+import { loadDefaultBrandPackage } from "../lib/defaultBrand.js";
 
 let engine: EngineHandle | null = null;
 let renderer: Canvas2DRenderer | null = null;
@@ -75,6 +76,7 @@ async function loadDocumentForPresenter(): Promise<void> {
   // In production this would be loaded from a URL parameter or IndexedDB.
   const { buildDemoDocumentJson } = await import("../editor/demo.js");
   engine.loadDocument(buildDemoDocumentJson());
+  await loadDefaultBrandPackage(engine);
 }
 
 // ─── Preflight ────────────────────────────────────────────────────────────────

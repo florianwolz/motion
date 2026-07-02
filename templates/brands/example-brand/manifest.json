@@ -6,11 +6,11 @@
   "modes": ["light", "dark", "teams", "projector", "pdf", "executive", "technical"],
   "fonts": [
     {
-      "family": "Inter",
-      "file": "fonts/inter.woff2",
+      "family": "Lato",
+      "file": "fonts/lato-regular.woff2",
       "usage": "internal",
       "subsetAllowed": true,
-      "license": "licenses/inter-license.json"
+      "license": "licenses/lato-license.json"
     }
   ],
   "components": [
@@ -19,7 +19,8 @@
     "ExecutiveSummary",
     "KpiHighlight",
     "BeforeAfter",
-    "AnnotatedChart"
+    "AnnotatedChart",
+    "SimpleArchitectureDiagram"
   ],
-  "description": "Example brand package for development and testing"
+  "description": "Example brand package for development, acceptance testing, and branded demos"
 }

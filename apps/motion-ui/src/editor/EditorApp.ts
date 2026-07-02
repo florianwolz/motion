@@ -15,6 +15,7 @@ import {
 import { isSupportedSavedDocument } from "../lib/documentState.js";
 import type { EngineHandle } from "../lib/engine.js";
 import { Canvas2DRenderer } from "../lib/renderer.js";
+import { loadDefaultBrandPackage } from "../lib/defaultBrand.js";
 import { buildDemoDocumentJson } from "./demo.js";
 
 const AUTOSAVE_KEY = "motion-current-doc";
@@ -51,7 +52,7 @@ export async function mountEditor(container: HTMLElement): Promise<void> {
     await initEngine();
     engine = createEngine();
 
-    loadInitialDocument(container);
+    await loadInitialDocument(container);
     wireToolbar(container);
     wireCanvas(container);
     wireKeyboardShortcuts(container);
@@ -64,7 +65,7 @@ export async function mountEditor(container: HTMLElement): Promise<void> {
   }
 }
 
-function loadInitialDocument(container: HTMLElement): void {
+async function loadInitialDocument(container: HTMLElement): Promise<void> {
   if (!engine) return;
 
   const saved = localStorage.getItem(AUTOSAVE_KEY);
@@ -82,7 +83,7 @@ function loadInitialDocument(container: HTMLElement): void {
     }
   }
 
-  loadDemoDocument(container, "Loaded demo document", "Loaded fresh demo document");
+  await loadDemoDocument(container, "Loaded demo document", "Loaded fresh demo document");
 }
 
 function startRenderLoop(container: HTMLElement): void {
@@ -122,8 +123,8 @@ function wireToolbar(container: HTMLElement): void {
   });
 
   container.querySelector("#btn-preflight")?.addEventListener("click", () => showPreflight(container));
-  container.querySelector("#btn-reset")?.addEventListener("click", () => {
-    loadDemoDocument(container, "Reset to demo", "Document reset to demo");
+  container.querySelector("#btn-reset")?.addEventListener("click", async () => {
+    await loadDemoDocument(container, "Reset to demo", "Document reset to demo");
     refreshEditorState(container);
   });
   container.querySelector("#btn-present")?.addEventListener("click", () => {
@@ -641,12 +642,17 @@ function parseUuid(value: unknown): string | null {
   return typeof known === "string" ? known : null;
 }
 
-function loadDemoDocument(container: HTMLElement, statusMessage: string, toolbarMessage: string): void {
+async function loadDemoDocument(
+  container: HTMLElement,
+  statusMessage: string,
+  toolbarMessage: string,
+): Promise<void> {
   if (!engine) return;
   const demo = buildDemoDocumentJson();
   engine.loadDocument(demo);
-  lastSavedSnapshot = demo;
-  localStorage.setItem(AUTOSAVE_KEY, demo);
+  await loadDefaultBrandPackage(engine);
+  lastSavedSnapshot = engine.serializeDocument();
+  localStorage.setItem(AUTOSAVE_KEY, lastSavedSnapshot);
   updateAutosaveStatus(container, statusMessage);
   setToolbarMessage(container, toolbarMessage);
 }

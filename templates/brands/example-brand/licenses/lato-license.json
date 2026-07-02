@@ -1,0 +1,8 @@
+{
+  "name": "Lato Regular",
+  "family": "Lato",
+  "license": "OFL-1.1",
+  "copyright": "(c) 2010-2011, Łukasz Dziedzic",
+  "source": "http://www.latofonts.com",
+  "notes": "Bundled from the Debian fonts-lato package for local development and acceptance testing."
+}
