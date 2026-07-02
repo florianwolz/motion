@@ -15,7 +15,6 @@ import {
 import { isSupportedSavedDocument } from "../lib/documentState.js";
 import type { EngineHandle } from "../lib/engine.js";
 import { Canvas2DRenderer } from "../lib/renderer.js";
-import { loadDefaultBrandPackage } from "../lib/defaultBrand.js";
 import { buildDemoDocumentJson } from "./demo.js";
 
 const AUTOSAVE_KEY = "motion-current-doc";
@@ -650,7 +649,6 @@ async function loadDemoDocument(
   if (!engine) return;
   const demo = buildDemoDocumentJson();
   engine.loadDocument(demo);
-  await loadDefaultBrandPackage(engine);
   lastSavedSnapshot = engine.serializeDocument();
   localStorage.setItem(AUTOSAVE_KEY, lastSavedSnapshot);
   updateAutosaveStatus(container, statusMessage);
