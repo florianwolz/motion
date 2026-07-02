@@ -4,8 +4,10 @@ use std::{fmt::Write as _, fs, path::PathBuf};
 
 use clap::{Parser, Subcommand};
 use motion_core::{
+    brand::build_brand_package,
     document::Document,
     node::{Color, Node, NodeId, NodeKind, StyleValue, Transform},
+    preflight::run_document_preflight,
     tokens::{parse_hex_color, TokenStore},
 };
 
@@ -76,15 +78,22 @@ fn run(cli: Cli) -> Result<(), String> {
     match cli.command {
         Commands::Validate { file } => {
             let document = load_document(&file)?;
-            println!(
-                "Validated {}: {} scene(s), {} node(s)",
-                file,
-                document.scenes.len(),
-                document.nodes.len()
-            );
+            let report = run_document_preflight(&document);
+            println!("Preflight {} for {}", status_label(&report.status), file);
+            for check in &report.checks {
+                let state = if check.passed { "ok" } else { "fail" };
+                println!("- [{}] {}: {}", state, check.id, check.message);
+                if let Some(details) = &check.details {
+                    println!("    {details}");
+                }
+            }
             Ok(())
         }
-        Commands::Export { file, format, output } => {
+        Commands::Export {
+            file,
+            format,
+            output,
+        } => {
             let document = load_document(&file)?;
             let extension = output_extension_for(&format);
             let output_path = output.unwrap_or_else(|| format!("output.{extension}"));
@@ -94,15 +103,43 @@ fn run(cli: Cli) -> Result<(), String> {
         }
         Commands::BuildBrand { dir, output } => {
             let out = output.unwrap_or_else(|| "brand.motionbrand".to_string());
-            println!("Building brand package from {dir} → {out}");
+            let package = build_brand_package(PathBuf::from(&dir).as_path())?;
+            let serialized = serde_json::to_string_pretty(&package)
+                .map_err(|error| format!("failed to serialize brand package: {error}"))?;
+            fs::write(&out, serialized)
+                .map_err(|error| format!("failed to write {out}: {error}"))?;
+            let token_section_count = package
+                .tokens
+                .as_object()
+                .map(|object| object.len())
+                .unwrap_or_default();
+            let token_section_label = if token_section_count == 1 {
+                "token section"
+            } else {
+                "token sections"
+            };
+            let asset_label = if package.assets.len() == 1 {
+                "asset"
+            } else {
+                "assets"
+            };
+            println!(
+                "Built brand package {} → {} ({} {}, {} {})",
+                dir,
+                out,
+                token_section_count,
+                token_section_label,
+                package.assets.len(),
+                asset_label
+            );
             Ok(())
         }
     }
 }
 
 fn load_document(path: &str) -> Result<Document, String> {
-    let contents = fs::read_to_string(path)
-        .map_err(|error| format!("failed to read {path}: {error}"))?;
+    let contents =
+        fs::read_to_string(path).map_err(|error| format!("failed to read {path}: {error}"))?;
     serde_json::from_str(&contents).map_err(|error| format!("failed to parse {path}: {error}"))
 }
 
@@ -129,6 +166,7 @@ fn render_html_document(document: &Document) -> String {
     html.push_str("<!doctype html><html><head><meta charset=\"utf-8\" /><title>");
     html.push_str(&escape_html(&document.metadata.title));
     html.push_str("</title><style>");
+    html.push_str(&render_font_face_css(document));
     html.push_str(
         "body{font-family:system-ui,sans-serif;background:#0d0d0f;color:#f4f4f5;margin:0;padding:32px;}main{display:grid;gap:32px;}section{background:#151518;border:1px solid #2a2a2e;border-radius:16px;padding:20px;}h1,h2{margin:0 0 12px;} .slide{position:relative;width:1920px;height:1080px;transform:scale(.5);transform-origin:top left;background:#0d0d0f;border:1px solid #2a2a2e;overflow:hidden;} .slide-wrap{width:960px;height:540px;overflow:hidden;border-radius:12px;} .node{position:absolute;white-space:pre-wrap;} .shape{border-radius:8px;} .meta{color:#9ca3af;font-size:12px;margin-bottom:16px;}",
     );
@@ -170,7 +208,10 @@ fn render_scene_html(document: &Document, node_id: NodeId, parent: &Transform, h
 }
 
 fn render_node_html(document: &Document, node: &Node, absolute: &Transform) -> String {
-    let opacity = document.tokens.resolve_f32(&node.style.opacity).unwrap_or(1.0);
+    let opacity = document
+        .tokens
+        .resolve_f32(&node.style.opacity)
+        .unwrap_or(1.0);
     let mut style = format!(
         "left:{}px;top:{}px;width:{}px;height:{}px;opacity:{};",
         absolute.x, absolute.y, absolute.width, absolute.height, opacity
@@ -178,19 +219,30 @@ fn render_node_html(document: &Document, node: &Node, absolute: &Transform) -> S
 
     match &node.data {
         NodeKind::Frame(_) | NodeKind::Group(_) => {
-            if let Some(fill) = node.style.fill.as_ref().and_then(|value| resolve_color_css(&document.tokens, value)) {
+            if let Some(fill) = node
+                .style
+                .fill
+                .as_ref()
+                .and_then(|value| resolve_color_css(&document.tokens, value))
+            {
                 let _ = write!(style, "background:{};", fill);
             }
             format!("<div class=\"node\" style=\"{}\"></div>", style)
         }
         NodeKind::Shape(_) => {
-            if let Some(fill) = node.style.fill.as_ref().and_then(|value| resolve_color_css(&document.tokens, value)) {
+            if let Some(fill) = node
+                .style
+                .fill
+                .as_ref()
+                .and_then(|value| resolve_color_css(&document.tokens, value))
+            {
                 let _ = write!(style, "background:{};", fill);
             }
             format!("<div class=\"node shape\" style=\"{}\"></div>", style)
         }
         NodeKind::Text(text) => {
-            let color = resolve_color_css(&document.tokens, &text.color).unwrap_or_else(|| "#FFFFFF".to_string());
+            let color = resolve_color_css(&document.tokens, &text.color)
+                .unwrap_or_else(|| "#FFFFFF".to_string());
             let font_family = document
                 .tokens
                 .resolve_string(&text.font_family)
@@ -228,7 +280,11 @@ fn render_pdf_document(document: &Document) -> Vec<u8> {
         })
         .collect::<Vec<_>>()
         .join(" ");
-    objects.push(format!("<< /Type /Pages /Count {} /Kids [{}] >>", document.scenes.len(), kids));
+    objects.push(format!(
+        "<< /Type /Pages /Count {} /Kids [{}] >>",
+        document.scenes.len(),
+        kids
+    ));
 
     for (index, scene) in document.scenes.iter().enumerate() {
         let page_id = PDF_FIRST_PAGE_OBJECT_ID + (index as u32 * PDF_OBJECTS_PER_SCENE);
@@ -241,7 +297,11 @@ fn render_pdf_document(document: &Document) -> Vec<u8> {
         objects.push(page);
 
         let stream = build_pdf_stream(document, scene.root, &scene.name);
-        let content = format!("<< /Length {} >>\nstream\n{}\nendstream", stream.len(), stream);
+        let content = format!(
+            "<< /Length {} >>\nstream\n{}\nendstream",
+            stream.len(),
+            stream
+        );
         objects.push(content);
     }
 
@@ -313,16 +373,17 @@ fn compose_transform(parent: &Transform, current: &Transform) -> Transform {
 }
 
 fn resolve_color_css(tokens: &TokenStore, value: &StyleValue<Color>) -> Option<String> {
-    tokens.resolve_color(value).map(color_to_css).or_else(|| {
-        match value {
+    tokens
+        .resolve_color(value)
+        .map(color_to_css)
+        .or_else(|| match value {
             StyleValue::Literal(color) => Some(color_to_css(color.clone())),
             StyleValue::Token(reference) => tokens
                 .resolve(&reference.path, 8)
                 .and_then(|raw| raw.as_str())
                 .and_then(parse_hex_color)
                 .map(color_to_css),
-        }
-    })
+        })
 }
 
 fn color_to_css(color: Color) -> String {
@@ -335,6 +396,44 @@ fn color_to_css(color: Color) -> String {
     )
 }
 
+fn render_font_face_css(document: &Document) -> String {
+    let mut css = String::new();
+    for asset in &document.assets.assets {
+        if !matches!(asset.kind, motion_core::document::AssetKind::Font) {
+            continue;
+        }
+        let Some(family) = asset.name.as_deref() else {
+            continue;
+        };
+        if !asset.uri.starts_with("data:font/") {
+            continue;
+        }
+        let format = if asset.uri.starts_with("data:font/woff2") {
+            "woff2"
+        } else if asset.uri.starts_with("data:font/woff") {
+            "woff"
+        } else {
+            "opentype"
+        };
+        let _ = write!(
+            css,
+            "@font-face{{font-family:'{}';src:url({}) format('{}');font-display:swap;}}",
+            escape_html(family),
+            asset.uri,
+            format
+        );
+    }
+    css
+}
+
+fn status_label(status: &motion_core::preflight::PreflightStatus) -> &'static str {
+    match status {
+        motion_core::preflight::PreflightStatus::Ready => "ready",
+        motion_core::preflight::PreflightStatus::Warning => "warning",
+        motion_core::preflight::PreflightStatus::Error => "error",
+    }
+}
+
 fn escape_html(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -344,14 +443,17 @@ fn escape_html(value: &str) -> String {
 }
 
 fn escape_pdf_text(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)")
+    value
+        .replace('\\', "\\\\")
+        .replace('(', "\\(")
+        .replace(')', "\\)")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use motion_core::{
-        document::Document,
+        document::{Asset, AssetId, AssetKind, Document},
         node::{FrameNode, Node, NodeKind, TextNode},
         scene::Scene,
     };
@@ -391,5 +493,22 @@ mod tests {
     fn pdf_export_starts_with_pdf_header() {
         let pdf = render_pdf_document(&sample_document());
         assert!(pdf.starts_with(b"%PDF-1.4"));
+    }
+
+    #[test]
+    fn html_export_embeds_bundled_font_faces() {
+        let mut document = sample_document();
+        document.assets.assets.push(Asset {
+            id: AssetId::new(),
+            kind: AssetKind::Font,
+            uri: "data:font/woff2;base64,ZmFrZS1mb250".into(),
+            hash: "unused".into(),
+            name: Some("Inter".into()),
+        });
+
+        let html = render_html_document(&document);
+        assert!(html.contains("@font-face"));
+        assert!(html.contains("font-family:'Inter'"));
+        assert!(html.contains("data:font/woff2;base64,ZmFrZS1mb250"));
     }
 }

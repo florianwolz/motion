@@ -4,15 +4,16 @@
 //! surface area.  High-frequency rendering and interaction logic stays in Rust.
 
 use motion_core::{
+    brand::load_brand_package as load_brand_package_into_document,
     command::Command,
     document::Document,
     engine::DocumentEngine,
     node::{NodeId, NodeKind, StyleValue, Transform},
+    preflight::run_document_preflight,
     scene::SceneId,
-    tokens::{TokenRef, TokenValue},
 };
 use motion_render::RenderTreeBuilder;
-use serde_json::{json, Value};
+use serde_json::json;
 use wasm_bindgen::prelude::*;
 
 const MIN_NODE_SIZE: f32 = 24.0;
@@ -80,8 +81,8 @@ impl MotionEngine {
     /// Load a serialized document (JSON string).
     #[wasm_bindgen(js_name = loadDocument)]
     pub fn load_document(&mut self, document_json: &str) -> Result<(), JsValue> {
-        let doc: Document = serde_json::from_str(document_json)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let doc: Document =
+            serde_json::from_str(document_json).map_err(|e| JsValue::from_str(&e.to_string()))?;
         self.inner = DocumentEngine::new(doc);
         self.selection = None;
         self.interaction = None;
@@ -91,37 +92,8 @@ impl MotionEngine {
     /// Load a brand package (JSON string) and merge its tokens into the document.
     #[wasm_bindgen(js_name = loadBrandPackage)]
     pub fn load_brand_package(&mut self, package_json: &str) -> Result<(), JsValue> {
-        let payload: Value = serde_json::from_str(package_json)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-        if let Some(obj) = payload.as_object() {
-            if let (Some(name), Some(version)) = (
-                obj.get("name").and_then(Value::as_str),
-                obj.get("version").and_then(Value::as_str),
-            ) {
-                self.inner.document_mut().brand = Some(motion_core::document::BrandBinding {
-                    name: name.to_string(),
-                    version: version.to_string(),
-                });
-            }
-        }
-
-        let source = payload.get("tokens").unwrap_or(&payload);
-        let has_explicit_tokens_key = payload.get("tokens").is_some();
-        let mut collected = Vec::new();
-        collect_tokens(source, &mut collected);
-        if collected.is_empty() {
-            let message = if has_explicit_tokens_key {
-                "Brand payload contains a `tokens` key but no dotted token entries"
-            } else {
-                "Brand payload did not contain a `tokens` object or top-level sections with dotted token entries"
-            };
-            return Err(JsValue::from_str(message));
-        }
-        for (path, value) in collected {
-            self.inner.document_mut().tokens.tokens.insert(path, value);
-        }
-        Ok(())
+        load_brand_package_into_document(self.inner.document_mut(), package_json)
+            .map_err(|error| JsValue::from_str(&error))
     }
 
     /// Update the canvas viewport dimensions.
@@ -271,8 +243,8 @@ impl MotionEngine {
     /// Apply a serialized command (JSON string).
     #[wasm_bindgen(js_name = applyCommand)]
     pub fn apply_command(&mut self, command_json: &str) -> Result<(), JsValue> {
-        let cmd: Command = serde_json::from_str(command_json)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let cmd: Command =
+            serde_json::from_str(command_json).map_err(|e| JsValue::from_str(&e.to_string()))?;
         self.inner
             .apply_command(cmd)
             .map_err(|e| JsValue::from_str(&e.to_string()))
@@ -354,7 +326,12 @@ impl MotionEngine {
     pub fn get_selection(&self) -> String {
         let selection = self
             .selection
-            .and_then(|node_id| self.inner.document().node(node_id).map(|node| (node_id, node)))
+            .and_then(|node_id| {
+                self.inner
+                    .document()
+                    .node(node_id)
+                    .map(|node| (node_id, node))
+            })
             .map(|(node_id, node)| {
                 vec![json!({
                     "id": node_id.0.to_string(),
@@ -428,62 +405,8 @@ impl MotionEngine {
     /// Run preflight checks and return a JSON `PreflightReport`.
     #[wasm_bindgen(js_name = runPreflight)]
     pub fn run_preflight(&self) -> String {
-        use motion_core::preflight::{
-            CheckCategory, CheckSeverity, PreflightCheck, PreflightReport,
-        };
-
-        let mut report = PreflightReport::new();
-        let doc = self.inner.document();
-
-        report.checks.push(PreflightCheck {
-            id: "scenes.non_empty".into(),
-            category: CheckCategory::Assets,
-            severity: CheckSeverity::Error,
-            passed: !doc.scenes.is_empty(),
-            message: if doc.scenes.is_empty() {
-                "Presentation has no scenes".into()
-            } else {
-                format!("{} scene(s) found", doc.scenes.len())
-            },
-            details: None,
-        });
-
-        let roots_valid = doc.scenes.iter().all(|s| doc.nodes.contains_key(&s.root));
-        report.checks.push(PreflightCheck {
-            id: "scenes.roots_valid".into(),
-            category: CheckCategory::Assets,
-            severity: CheckSeverity::Error,
-            passed: roots_valid,
-            message: if roots_valid {
-                "All scene roots are valid".into()
-            } else {
-                "One or more scenes have a missing root node".into()
-            },
-            details: None,
-        });
-
-        let has_font = doc
-            .assets
-            .assets
-            .iter()
-            .any(|a| matches!(a.kind, motion_core::document::AssetKind::Font));
-        report.checks.push(PreflightCheck {
-            id: "fonts.bundled".into(),
-            category: CheckCategory::Fonts,
-            severity: CheckSeverity::Warning,
-            passed: has_font,
-            message: if has_font {
-                "Bundled font found".into()
-            } else {
-                "No bundled font — presentation may use system fonts".into()
-            },
-            details: None,
-        });
-
-        report.recalculate_status();
-        serde_json::to_string(&report).unwrap_or_else(|_| {
-            r#"{"status":"error","checks":[],"suggestions":[]}"#.to_string()
-        })
+        serde_json::to_string(&run_document_preflight(self.inner.document()))
+            .unwrap_or_else(|_| r#"{"status":"error","checks":[],"suggestions":[]}"#.to_string())
     }
 
     /// Serialize the current document to a JSON string.
@@ -628,45 +551,6 @@ fn compose_transform(parent: &Transform, current: &Transform) -> Transform {
         rotation: parent.rotation + current.rotation,
         scale_x: parent.scale_x * current.scale_x,
         scale_y: parent.scale_y * current.scale_y,
-    }
-}
-
-fn collect_tokens(value: &Value, out: &mut Vec<(String, TokenValue)>) {
-    let Some(object) = value.as_object() else {
-        return;
-    };
-
-    for (key, child) in object {
-        if key.starts_with('_') {
-            continue;
-        }
-        if key.contains('.') {
-            out.push((key.clone(), json_to_token_value(child)));
-        } else {
-            collect_tokens(child, out);
-        }
-    }
-}
-
-fn json_to_token_value(value: &Value) -> TokenValue {
-    match value {
-        Value::String(s) => parse_token_string(s)
-            .map(|path| TokenValue::Alias(TokenRef::new(path)))
-            .unwrap_or_else(|| TokenValue::Scalar(value.clone())),
-        Value::Object(map) => TokenValue::Composite(
-            map.iter()
-                .map(|(key, child)| (key.clone(), json_to_token_value(child)))
-                .collect(),
-        ),
-        _ => TokenValue::Scalar(value.clone()),
-    }
-}
-
-fn parse_token_string(value: &str) -> Option<&str> {
-    if value.starts_with('{') && value.ends_with('}') && value.len() > 2 {
-        Some(&value[1..value.len() - 1])
-    } else {
-        None
     }
 }
 

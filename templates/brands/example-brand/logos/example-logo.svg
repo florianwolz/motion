@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 40" role="img" aria-label="Example Brand logo">
+  <rect width="160" height="40" rx="10" fill="#EC6602"/>
+  <circle cx="26" cy="20" r="10" fill="#FFFFFF"/>
+  <path d="M50 12h12c8 0 14 6 14 14s-6 14-14 14H50z" fill="#FFFFFF"/>
+  <path d="M86 12h10l10 16 10-16h10v16c0 6-4 10-10 10H86z" fill="#FFFFFF"/>
+</svg>
