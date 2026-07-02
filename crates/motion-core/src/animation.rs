@@ -240,6 +240,205 @@ impl AnimationTrack {
     }
 }
 
+// ------------------------------------------------------------------
+// Preset track builders
+// ------------------------------------------------------------------
+
+/// Default animation duration in milliseconds (used when no token is set).
+pub const DEFAULT_ANIMATION_DURATION_MS: f32 = 400.0;
+
+/// Y-axis slide offset in CSS pixels for slide_in / slide_out.
+const SLIDE_OFFSET_PX: f32 = 40.0;
+
+/// Starting scale factor for scale_in / scale_out.
+const SCALE_IN_FROM: f32 = 0.85;
+
+/// Scale overshoot factor for pop_in.
+const POP_IN_OVERSHOOT: f32 = 1.15;
+
+/// Build enter-animation tracks for `node_id` using the named `preset`.
+///
+/// `duration_ms` is the full animation length; `offset_ms` shifts the
+/// animation forward in time (used for stagger effects).  Returns an empty
+/// `Vec` if the preset is empty or unrecognised.
+pub fn build_enter_tracks(
+    node_id: crate::node::NodeId,
+    preset: &str,
+    duration_ms: f32,
+    offset_ms: f32,
+) -> Vec<AnimationTrack> {
+    let start = offset_ms;
+    let end = offset_ms + duration_ms;
+    match preset {
+        "slide_in" => slide_in_tracks(node_id, start, end),
+        "scale_in" => scale_in_tracks(node_id, start, end),
+        "pop_in" => pop_in_tracks(node_id, start, end),
+        "grow" => grow_tracks(node_id, start, end),
+        // "fade_in" or any unrecognised name → fade
+        _ => fade_in_tracks(node_id, start, end),
+    }
+}
+
+/// Build exit-animation tracks for `node_id` using the named `preset`.
+pub fn build_exit_tracks(
+    node_id: crate::node::NodeId,
+    preset: &str,
+    duration_ms: f32,
+    offset_ms: f32,
+) -> Vec<AnimationTrack> {
+    let start = offset_ms;
+    let end = offset_ms + duration_ms;
+    match preset {
+        "slide_out" => slide_out_tracks(node_id, start, end),
+        "scale_out" => scale_out_tracks(node_id, start, end),
+        // "fade_out" or any unrecognised name → fade
+        _ => fade_out_tracks(node_id, start, end),
+    }
+}
+
+/// Return the maximum `time_ms` across all keyframes in all tracks (i.e. the
+/// total timeline length in ms).
+pub fn tracks_total_duration(tracks: &[AnimationTrack]) -> f32 {
+    tracks
+        .iter()
+        .flat_map(|t| t.keyframes.iter().map(|kf| kf.time_ms))
+        .fold(0.0_f32, f32::max)
+}
+
+// ── Individual preset builders ─────────────────────────────────────────────
+
+fn fade_in_tracks(node_id: crate::node::NodeId, start: f32, end: f32) -> Vec<AnimationTrack> {
+    vec![AnimationTrack {
+        node_id,
+        property: "opacity".into(),
+        keyframes: vec![
+            Keyframe {
+                time_ms: start,
+                value: serde_json::json!(0.0),
+                easing: Some(Easing::CubicBezier(CubicBezier::PRECISE)),
+            },
+            Keyframe { time_ms: end, value: serde_json::json!(1.0), easing: None },
+        ],
+    }]
+}
+
+fn fade_out_tracks(node_id: crate::node::NodeId, start: f32, end: f32) -> Vec<AnimationTrack> {
+    vec![AnimationTrack {
+        node_id,
+        property: "opacity".into(),
+        keyframes: vec![
+            Keyframe {
+                time_ms: start,
+                value: serde_json::json!(1.0),
+                easing: Some(Easing::CubicBezier(CubicBezier::PRECISE)),
+            },
+            Keyframe { time_ms: end, value: serde_json::json!(0.0), easing: None },
+        ],
+    }]
+}
+
+fn slide_in_tracks(node_id: crate::node::NodeId, start: f32, end: f32) -> Vec<AnimationTrack> {
+    let mut tracks = fade_in_tracks(node_id, start, end);
+    tracks.push(AnimationTrack {
+        node_id,
+        property: "transform.y_offset".into(),
+        keyframes: vec![
+            Keyframe {
+                time_ms: start,
+                value: serde_json::json!(SLIDE_OFFSET_PX),
+                easing: Some(Easing::CubicBezier(CubicBezier::PRECISE)),
+            },
+            Keyframe { time_ms: end, value: serde_json::json!(0.0), easing: None },
+        ],
+    });
+    tracks
+}
+
+fn slide_out_tracks(node_id: crate::node::NodeId, start: f32, end: f32) -> Vec<AnimationTrack> {
+    let mut tracks = fade_out_tracks(node_id, start, end);
+    tracks.push(AnimationTrack {
+        node_id,
+        property: "transform.y_offset".into(),
+        keyframes: vec![
+            Keyframe {
+                time_ms: start,
+                value: serde_json::json!(0.0),
+                easing: Some(Easing::CubicBezier(CubicBezier::PRECISE)),
+            },
+            Keyframe { time_ms: end, value: serde_json::json!(SLIDE_OFFSET_PX), easing: None },
+        ],
+    });
+    tracks
+}
+
+fn scale_in_tracks(node_id: crate::node::NodeId, start: f32, end: f32) -> Vec<AnimationTrack> {
+    let mut tracks = fade_in_tracks(node_id, start, end);
+    tracks.push(AnimationTrack {
+        node_id,
+        property: "transform.scale_anim".into(),
+        keyframes: vec![
+            Keyframe {
+                time_ms: start,
+                value: serde_json::json!(SCALE_IN_FROM),
+                easing: Some(Easing::CubicBezier(CubicBezier::PRECISE)),
+            },
+            Keyframe { time_ms: end, value: serde_json::json!(1.0), easing: None },
+        ],
+    });
+    tracks
+}
+
+fn scale_out_tracks(node_id: crate::node::NodeId, start: f32, end: f32) -> Vec<AnimationTrack> {
+    let mut tracks = fade_out_tracks(node_id, start, end);
+    tracks.push(AnimationTrack {
+        node_id,
+        property: "transform.scale_anim".into(),
+        keyframes: vec![
+            Keyframe {
+                time_ms: start,
+                value: serde_json::json!(1.0),
+                easing: Some(Easing::CubicBezier(CubicBezier::PRECISE)),
+            },
+            Keyframe { time_ms: end, value: serde_json::json!(SCALE_IN_FROM), easing: None },
+        ],
+    });
+    tracks
+}
+
+fn pop_in_tracks(node_id: crate::node::NodeId, start: f32, end: f32) -> Vec<AnimationTrack> {
+    let mut tracks = fade_in_tracks(node_id, start, end);
+    tracks.push(AnimationTrack {
+        node_id,
+        property: "transform.scale_anim".into(),
+        keyframes: vec![
+            Keyframe {
+                time_ms: start,
+                value: serde_json::json!(POP_IN_OVERSHOOT),
+                easing: Some(Easing::Spring(SpringParams::default())),
+            },
+            Keyframe { time_ms: end, value: serde_json::json!(1.0), easing: None },
+        ],
+    });
+    tracks
+}
+
+fn grow_tracks(node_id: crate::node::NodeId, start: f32, end: f32) -> Vec<AnimationTrack> {
+    vec![AnimationTrack {
+        node_id,
+        property: "transform.scale_y_anim".into(),
+        keyframes: vec![
+            Keyframe {
+                time_ms: start,
+                value: serde_json::json!(0.0),
+                easing: Some(Easing::CubicBezier(CubicBezier::PRECISE)),
+            },
+            Keyframe { time_ms: end, value: serde_json::json!(1.0), easing: None },
+        ],
+    }]
+}
+
+// ------------------------------------------------------------------
+
 /// Linearly interpolate between two JSON values using factor `t ∈ [0, 1]`.
 /// Only f64 numbers are interpolated; all other types snap to `b` when `t >= 0.5`.
 fn interpolate_json(a: &serde_json::Value, b: &serde_json::Value, t: f32) -> serde_json::Value {
