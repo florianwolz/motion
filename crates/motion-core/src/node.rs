@@ -257,7 +257,7 @@ pub struct ComponentInstanceNode {
 
 /// Discriminated union of all concrete node types.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum NodeKind {
     Frame(FrameNode),
     Group(GroupNode),
