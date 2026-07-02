@@ -18,12 +18,16 @@ import { buildDemoDocumentJson } from "./demo.js";
 
 const AUTOSAVE_KEY = "motion-current-doc";
 const AUTOSAVE_INTERVAL_MS = 1500;
+const LAYER_BASE_INDENT_PX = 8;
+const LAYER_INDENT_PER_LEVEL_PX = 12;
+const LEGACY_UUID_INDEX = 0;
 
 let engine: EngineHandle | null = null;
 let renderer: Canvas2DRenderer | null = null;
 let autosaveTimer: number | null = null;
 let timelinePreviewTimer: number | null = null;
 let beforeUnloadRegistered = false;
+let keyboardShortcutsRegistered = false;
 let lastSavedSnapshot = "";
 
 export async function mountEditor(container: HTMLElement): Promise<void> {
@@ -40,6 +44,7 @@ export async function mountEditor(container: HTMLElement): Promise<void> {
     loadInitialDocument(container);
     wireToolbar(container);
     wireCanvas(container);
+    wireKeyboardShortcuts(container);
     refreshEditorState(container);
     startAutosave(container);
     startRenderLoop(container);
@@ -111,6 +116,8 @@ function wireToolbar(container: HTMLElement): void {
     saveDocument(container, "Saved for presentation");
     window.open("/present", "_blank");
   });
+  container.querySelector("#btn-step-reveal")?.addEventListener("click", () => addStepFromSelection(container, "reveal"));
+  container.querySelector("#btn-step-hide")?.addEventListener("click", () => addStepFromSelection(container, "hide"));
 
   const brandInput = container.querySelector<HTMLInputElement>("#brand-file-input");
   container.querySelector("#btn-brand")?.addEventListener("click", () => brandInput?.click());
@@ -170,6 +177,84 @@ function wireCanvas(container: HTMLElement): void {
   canvas.addEventListener("pointercancel", finishPointer);
 }
 
+function wireKeyboardShortcuts(container: HTMLElement): void {
+  if (keyboardShortcutsRegistered) return;
+  window.addEventListener("keydown", (event) => {
+    if (!engine) return;
+    const target = event.target;
+    if (
+      target instanceof HTMLInputElement
+      || target instanceof HTMLTextAreaElement
+      || target instanceof HTMLSelectElement
+      || (target instanceof HTMLElement && target.isContentEditable)
+    ) {
+      return;
+    }
+
+    const key = event.key.toLowerCase();
+    const hasModifier = event.metaKey || event.ctrlKey;
+
+    if (hasModifier && key === "z") {
+      event.preventDefault();
+      const ok = event.shiftKey ? engine.redo() : engine.undo();
+      if (ok) {
+        refreshEditorState(container);
+        saveDocument(container, event.shiftKey ? "Saved after redo" : "Saved after undo");
+      }
+      return;
+    }
+
+    if (hasModifier && key === "y") {
+      event.preventDefault();
+      if (engine.redo()) {
+        refreshEditorState(container);
+        saveDocument(container, "Saved after redo");
+      }
+      return;
+    }
+
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
+      if (engine.nextStep()) refreshTimeline(container);
+      return;
+    }
+
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (engine.previousStep()) refreshTimeline(container);
+      return;
+    }
+
+    if (key === "r") {
+      event.preventDefault();
+      engine.restartScene();
+      refreshTimeline(container);
+    }
+  });
+  keyboardShortcutsRegistered = true;
+}
+
+function addStepFromSelection(container: HTMLElement, mode: "reveal" | "hide"): void {
+  if (!engine) return;
+  const inspector = parseInspector(engine.inspect());
+  if (!inspector.scene_id || !inspector.selected) {
+    setToolbarMessage(container, "Select a node first");
+    return;
+  }
+
+  const command = buildAddStepCommand(
+    inspector.scene_id,
+    inspector.selected.id,
+    inspector.selected.name,
+    mode
+  );
+
+  engine.applyCommand(JSON.stringify(command));
+  refreshEditorState(container);
+  saveDocument(container, `Autosaved ${mode} step`);
+  setToolbarMessage(container, `Added ${mode} step for ${inspector.selected.name}`);
+}
+
 function showPreflight(container: HTMLElement): void {
   if (!engine) return;
   const report = parsePreflight(engine.runPreflight());
@@ -192,6 +277,7 @@ function showPreflight(container: HTMLElement): void {
 
 function refreshEditorState(container: HTMLElement): void {
   refreshSceneList(container);
+  refreshLayers(container);
   refreshInspector(container);
   refreshTimeline(container);
   renderSelectionOverlay(container);
@@ -218,6 +304,50 @@ function refreshSceneList(container: HTMLElement): void {
     item.addEventListener("click", () => {
       const id = item.dataset.id;
       if (!id || !engine?.jumpToScene(id)) return;
+      refreshEditorState(container);
+    });
+  });
+}
+
+function refreshLayers(container: HTMLElement): void {
+  if (!engine) return;
+  const layerList = container.querySelector<HTMLElement>("#layer-list");
+  if (!layerList) return;
+
+  const raw = safeParseJson<Record<string, unknown>>(engine.serializeDocument());
+  const scenes = (raw?.scenes as unknown[]) ?? [];
+  const position = parsePosition(engine.getPosition());
+  const scene = scenes[position.scene_idx] as Record<string, unknown> | undefined;
+  if (!scene) {
+    layerList.innerHTML = "";
+    return;
+  }
+
+  const rootId = parseUuid((scene as { root?: unknown }).root);
+  const nodesById = buildNodeMap((raw?.nodes as Record<string, unknown>) ?? {});
+  const selectedId = parseInspector(engine.inspect()).selected?.id ?? null;
+  if (!rootId || !nodesById.has(rootId)) {
+    layerList.innerHTML = "";
+    return;
+  }
+
+  const rows: string[] = [];
+  const walk = (nodeId: string, depth: number) => {
+    const node = nodesById.get(nodeId);
+    if (!node) return;
+    const active = selectedId === nodeId ? "active" : "";
+    rows.push(
+      `<li class="layer-item ${active}" data-id="${escapeHtml(nodeId)}" style="padding-left:${LAYER_BASE_INDENT_PX + depth * LAYER_INDENT_PER_LEVEL_PX}px">${escapeHtml(node.name)}</li>`
+    );
+    node.children.forEach((child) => walk(child, depth + 1));
+  };
+  walk(rootId, 0);
+
+  layerList.innerHTML = rows.join("");
+  layerList.querySelectorAll<HTMLElement>(".layer-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      const id = item.dataset.id;
+      if (!id || !engine?.selectNode(id)) return;
       refreshEditorState(container);
     });
   });
@@ -399,6 +529,69 @@ function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
+type SerializedNode = {
+  id: string;
+  name: string;
+  children: string[];
+};
+
+function safeParseJson<T>(json: string): T | null {
+  try {
+    return JSON.parse(json) as T;
+  } catch {
+    return null;
+  }
+}
+
+function parseUuid(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  // Some legacy JSON payloads encode tuple-struct UUIDs with an index key (`{ "0": "..." }`).
+  // This keeps autosaved payload compatibility when older documents are loaded.
+  const known = candidate.Uuid ?? candidate.uuid ?? candidate[LEGACY_UUID_INDEX];
+  return typeof known === "string" ? known : null;
+}
+
+function buildAddStepCommand(
+  sceneId: string,
+  targetId: string,
+  targetName: string,
+  mode: "reveal" | "hide"
+): Record<string, unknown> {
+  return {
+    type: "add_step",
+    scene_id: { Uuid: sceneId },
+    name: `${mode === "reveal" ? "Reveal" : "Hide"} ${targetName}`,
+    commands: [
+      {
+        type: mode,
+        target: { Uuid: targetId },
+      },
+    ],
+    transition: null,
+    notes: null,
+  };
+}
+
+function buildNodeMap(nodes: Record<string, unknown>): Map<string, SerializedNode> {
+  const map = new Map<string, SerializedNode>();
+  Object.values(nodes).forEach((rawNode) => {
+    if (!rawNode || typeof rawNode !== "object") return;
+    const node = rawNode as Record<string, unknown>;
+    const id = parseUuid(node.id);
+    const name = typeof node.name === "string" ? node.name : "Node";
+    const children = Array.isArray(node.children)
+      ? node.children
+        .map((child) => parseUuid(child))
+        .filter((child): child is string => Boolean(child))
+      : [];
+    if (!id) return;
+    map.set(id, { id, name, children });
+  });
+  return map;
+}
+
 function buildShellHtml(): string {
   return `
     <div class="editor-shell">
@@ -407,6 +600,8 @@ function buildShellHtml(): string {
         <div class="toolbar-actions">
           <button id="btn-undo" title="Undo (Ctrl+Z)">↩ Undo</button>
           <button id="btn-redo" title="Redo (Ctrl+Shift+Z)">↪ Redo</button>
+          <button id="btn-step-reveal" title="Create reveal step from selection">+ Reveal step</button>
+          <button id="btn-step-hide" title="Create hide step from selection">+ Hide step</button>
           <button id="btn-preflight" title="Run preflight checks">🔍 Preflight</button>
           <button id="btn-brand" title="Load token JSON">🎨 Load brand</button>
           <button id="btn-present" title="Open presentation mode">▶ Present</button>
@@ -419,6 +614,8 @@ function buildShellHtml(): string {
         <aside class="editor-layers">
           <h3>Scenes</h3>
           <ul id="scene-list"></ul>
+          <h3 class="layers-heading">Layers</h3>
+          <ul id="layer-list"></ul>
         </aside>
         <section class="editor-canvas-wrap" id="canvas-container">
           <canvas id="editor-canvas"></canvas>
@@ -457,6 +654,9 @@ function buildShellHtml(): string {
       .scene-item { padding: 6px 8px; border-radius: 4px; cursor: pointer; list-style: none; }
       .scene-item:hover, .scene-item.active { background: #2a2a2e; }
       .step-count { color: #666; font-size: 11px; }
+      .layers-heading { margin-top: 14px; }
+      .layer-item { list-style: none; padding: 5px 8px; border-radius: 4px; cursor: pointer; color: #cfcfd4; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .layer-item:hover, .layer-item.active { background: #2a2a2e; color: #fff; }
       .editor-canvas-wrap { flex: 1; background: #111113; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
       #editor-canvas { width: 100%; height: 100%; display: block; }
       .selection-overlay { position: absolute; inset: 0; pointer-events: none; }

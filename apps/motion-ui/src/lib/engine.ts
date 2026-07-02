@@ -51,6 +51,7 @@ export interface EngineHandle {
   nextStep(): boolean;
   previousStep(): boolean;
   jumpToScene(sceneId: string): boolean;
+  selectNode(nodeId: string): boolean;
   restartScene(): void;
   getPosition(): string;
   getSelection(): string;
