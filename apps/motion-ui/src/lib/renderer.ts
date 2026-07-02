@@ -314,7 +314,7 @@ export class Canvas2DRenderer {
         line = test;
       }
     }
-    if (line && y + lineHeightPx <= h + lineHeightPx) {
+    if (line && y + lineHeightPx <= h) {
       ctx.fillText(line, 0, y);
     }
   }

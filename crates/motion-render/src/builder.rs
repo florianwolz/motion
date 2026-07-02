@@ -164,7 +164,7 @@ impl<'a> RenderTreeBuilder<'a> {
                     .tokens
                     .resolve(&format!("material.{name}.color"), 4)
                     .and_then(|v| v.as_str())
-                    .and_then(|s| motion_core::tokens::parse_hex_color_pub(s))
+                    .and_then(|s| motion_core::tokens::parse_hex_color(s))
                     .unwrap_or(Color::WHITE);
                 ResolvedMaterial::Solid { color }
             }
@@ -277,8 +277,8 @@ pub fn linear_gradient(
     from_hex: &str,
     to_hex: &str,
 ) -> Option<GradientSpec> {
-    let from = motion_core::tokens::parse_hex_color_pub(from_hex)?;
-    let to = motion_core::tokens::parse_hex_color_pub(to_hex)?;
+    let from = motion_core::tokens::parse_hex_color(from_hex)?;
+    let to = motion_core::tokens::parse_hex_color(to_hex)?;
     Some(GradientSpec {
         kind: crate::material::GradientKind::Linear { angle_deg },
         stops: vec![

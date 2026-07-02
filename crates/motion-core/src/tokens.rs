@@ -132,13 +132,7 @@ impl TokenStore {
 
 /// Parse a CSS hex color string into a `Color`.
 /// Supports `#RGB`, `#RRGGBB`, and `#RRGGBBAA`.
-pub fn parse_hex_color_pub(s: &str) -> Option<Color> {
-    parse_hex_color(s)
-}
-
-/// Parse a CSS hex color string into a `Color` (private).
-/// Supports `#RGB`, `#RRGGBB`, and `#RRGGBBAA`.
-fn parse_hex_color(s: &str) -> Option<Color> {
+pub fn parse_hex_color(s: &str) -> Option<Color> {
     let s = s.strip_prefix('#')?;
     let expand = |nibble: u8| -> f32 { ((nibble << 4 | nibble) as f32) / 255.0 };
     match s.len() {

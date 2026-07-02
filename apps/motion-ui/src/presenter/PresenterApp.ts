@@ -119,7 +119,10 @@ function startRenderLoop(container: HTMLElement): void {
 
     if (isBlackScreen) {
       const ctx = canvas.getContext("2d");
-      if (ctx) ctx.fillStyle = "#000", ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+      if (ctx) {
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+      }
       requestAnimationFrame(frame);
       return;
     }

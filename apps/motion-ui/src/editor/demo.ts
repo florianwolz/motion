@@ -65,14 +65,14 @@ export function buildDemoDocumentJson(): string {
     ],
     nodes: {
       [rootId]: makeFrameNode(rootId, "Root", null, 0, 0, 1920, 1080, "#0D0D0F"),
-      [rectId]: makeShapeNode(rectId, "Accent Bar", rootId, [rootId], 120, 460, 8, 160, "#EC6602"),
+      [rectId]: makeShapeNode(rectId, "Accent Bar", rootId, 120, 460, 8, 160, "#EC6602"),
       [titleId]: makeTextNode(
-        titleId, "Title", rootId, [rectId, titleId, subtitleId],
+        titleId, "Title", rootId,
         160, 440,
         "Motion", "color.text.primary", "typography.display.font", "typography.display.size",
       ),
       [subtitleId]: makeTextNode(
-        subtitleId, "Subtitle", rootId, [],
+        subtitleId, "Subtitle", rootId,
         160, 530,
         "Live motion-graphic presentations — built in Rust.",
         "color.text.secondary", "typography.body.font", "typography.body.size",
@@ -124,7 +124,7 @@ function makeFrameNode(
 }
 
 function makeShapeNode(
-  id: string, name: string, parent: string | null, _siblings: string[],
+  id: string, name: string, parent: string | null,
   x: number, y: number, w: number, h: number, fill: string,
 ) {
   return {
@@ -151,7 +151,7 @@ function makeShapeNode(
 }
 
 function makeTextNode(
-  id: string, name: string, parent: string | null, _siblings: string[],
+  id: string, name: string, parent: string | null,
   x: number, y: number,
   content: string, colorToken: string, fontToken: string, sizeToken: string,
 ) {
