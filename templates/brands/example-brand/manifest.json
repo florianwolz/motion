@@ -1,0 +1,25 @@
+{
+  "name": "Example Brand",
+  "id": "example-brand",
+  "version": "0.1.0",
+  "engineCompatibility": ">=0.1.0",
+  "modes": ["light", "dark", "teams", "projector", "pdf", "executive", "technical"],
+  "fonts": [
+    {
+      "family": "Inter",
+      "file": "fonts/inter.woff2",
+      "usage": "internal",
+      "subsetAllowed": true,
+      "license": "licenses/inter-license.json"
+    }
+  ],
+  "components": [
+    "TitleReveal",
+    "SectionIntro",
+    "ExecutiveSummary",
+    "KpiHighlight",
+    "BeforeAfter",
+    "AnnotatedChart"
+  ],
+  "description": "Example brand package for development and testing"
+}

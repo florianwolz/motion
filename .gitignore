@@ -1,0 +1,26 @@
+# Rust
+/target
+crates/*/target
+
+# WASM build output
+crates/motion-wasm/pkg/
+
+# TypeScript / Node
+apps/motion-ui/node_modules/
+apps/motion-ui/dist/
+
+# Environment
+.env
+.env.local
+
+# Editor
+.vscode/settings.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
