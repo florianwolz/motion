@@ -547,7 +547,7 @@ function setToolbarMessage(container: HTMLElement, message: string): void {
 }
 
 function clampZoom(value: number): number {
-  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number(value.toFixed(2))));
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(value * 100) / 100));
 }
 
 function applyCanvasZoom(container: HTMLElement): void {
@@ -719,11 +719,11 @@ function buildShellHtml(): string {
               <button id="btn-share" class="share-btn">Share</button>
             </div>
             <div class="collaborators">
-              <span class="avatar">FW</span>
-              <span class="avatar">AN</span>
-              <span class="avatar">SL</span>
+              <span class="avatar" aria-label="Florian">FW</span>
+              <span class="avatar" aria-label="Ana">AN</span>
+              <span class="avatar" aria-label="Seline">SL</span>
             </div>
-            <p class="collaboration-copy">3 collaborators online · Live cursors enabled</p>
+            <p class="collaboration-copy">Collaborators online · Live cursors enabled</p>
           </div>
           <h3>Inspector</h3>
           <div id="preflight-panel" class="preflight-panel" style="display:none"></div>
