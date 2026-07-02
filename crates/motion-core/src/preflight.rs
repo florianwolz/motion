@@ -157,6 +157,11 @@ pub fn run_document_preflight(document: &Document) -> PreflightReport {
     } else {
         true
     };
+    let font_asset_label = if bundled_fonts == 1 {
+        "bundled font asset"
+    } else {
+        "bundled font assets"
+    };
     report.checks.push(PreflightCheck {
         id: "fonts.bundled".into(),
         category: CheckCategory::Fonts,
@@ -167,7 +172,7 @@ pub fn run_document_preflight(document: &Document) -> PreflightReport {
         },
         passed: font_check_passed,
         message: if bundled_fonts > 0 {
-            format!("{bundled_fonts} bundled font asset(s) verified")
+            format!("{bundled_fonts} {font_asset_label} verified")
         } else if expects_brand_font {
             "Brand typography is configured but no bundled font asset was verified".into()
         } else {
@@ -194,6 +199,11 @@ pub fn run_document_preflight(document: &Document) -> PreflightReport {
         .iter()
         .filter(|asset| !verify_asset_hash(asset))
         .collect();
+    let asset_label = if bundled_assets.len() == 1 {
+        "bundled asset"
+    } else {
+        "bundled assets"
+    };
     report.checks.push(PreflightCheck {
         id: "assets.hashes_valid".into(),
         category: CheckCategory::Assets,
@@ -202,14 +212,16 @@ pub fn run_document_preflight(document: &Document) -> PreflightReport {
         message: if bundled_assets.is_empty() {
             "No bundled assets to validate".into()
         } else if invalid_assets.is_empty() {
-            format!(
-                "Validated {} bundled asset checksum(s)",
-                bundled_assets.len()
-            )
+            format!("Validated {} {} checksum(s)", bundled_assets.len(), asset_label)
         } else {
             format!(
-                "{} bundled asset(s) failed checksum validation",
-                invalid_assets.len()
+                "{} {} failed checksum validation",
+                invalid_assets.len(),
+                if invalid_assets.len() == 1 {
+                    "bundled asset"
+                } else {
+                    "bundled assets"
+                }
             )
         },
         details: if invalid_assets.is_empty() {

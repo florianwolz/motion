@@ -108,16 +108,29 @@ fn run(cli: Cli) -> Result<(), String> {
                 .map_err(|error| format!("failed to serialize brand package: {error}"))?;
             fs::write(&out, serialized)
                 .map_err(|error| format!("failed to write {out}: {error}"))?;
+            let token_section_count = package
+                .tokens
+                .as_object()
+                .map(|object| object.len())
+                .unwrap_or_default();
+            let token_section_label = if token_section_count == 1 {
+                "token section"
+            } else {
+                "token sections"
+            };
+            let asset_label = if package.assets.len() == 1 {
+                "asset"
+            } else {
+                "assets"
+            };
             println!(
-                "Built brand package {} → {} ({} token section(s), {} asset(s))",
+                "Built brand package {} → {} ({} {}, {} {})",
                 dir,
                 out,
-                package
-                    .tokens
-                    .as_object()
-                    .map(|object| object.len())
-                    .unwrap_or_default(),
-                package.assets.len()
+                token_section_count,
+                token_section_label,
+                package.assets.len(),
+                asset_label
             );
             Ok(())
         }
