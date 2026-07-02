@@ -5,7 +5,48 @@
  * ready to be passed to `engine.loadDocument()`.
  */
 
-type DemoNode = ReturnType<typeof makeFrameNode> | ReturnType<typeof makeShapeNode> | ReturnType<typeof makeTextNode>;
+type DemoNode = {
+  id: string;
+  name: string;
+  parent: string | null;
+  children: string[];
+  transform: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+    scale_x: number;
+    scale_y: number;
+  };
+  style: {
+    opacity: number;
+    fill: { path: string } | null;
+    stroke: null;
+    stroke_width: null;
+    blur_radius: null;
+    material: null;
+  };
+  layout: {
+    layout_mode: string;
+    padding: null;
+    gap: null;
+    align_items: null;
+    justify_content: null;
+  };
+  animation: {
+    enter_preset: string | null;
+    exit_preset: null;
+    stagger_delay: null;
+  };
+  semantic: {
+    role: null;
+    label: null;
+  };
+  visible: boolean;
+  locked: boolean;
+  data: Record<string, unknown>;
+};
 
 export function buildDemoDocumentJson(): string {
   const sceneNodes: Record<string, DemoNode> = {};
