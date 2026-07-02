@@ -8,6 +8,10 @@
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "baseUrl": ".",
+    "paths": {
+      "@motion/engine": ["../../crates/motion-wasm/pkg"]
+    },
     "outDir": "dist",
     "rootDir": "src",
     "declaration": true,

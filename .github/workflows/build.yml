@@ -6,6 +6,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   rust-build:
     runs-on: ubuntu-latest
@@ -49,7 +52,7 @@ jobs:
         uses: jetli/wasm-pack-action@v0.4.0
 
       - name: Build WASM package
-        run: wasm-pack build crates/motion-wasm --target web
+        run: wasm-pack build crates/motion-wasm --target web --dev
 
       - name: Install UI dependencies
         working-directory: apps/motion-ui

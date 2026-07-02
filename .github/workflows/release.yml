@@ -46,7 +46,7 @@ jobs:
         run: cargo build --workspace --release --locked
 
       - name: Build WASM release package
-        run: wasm-pack build crates/motion-wasm --target web --release
+        run: wasm-pack build crates/motion-wasm --target web --release --no-opt
 
       - name: Build UI release bundle
         working-directory: apps/motion-ui
