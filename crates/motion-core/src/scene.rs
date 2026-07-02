@@ -90,6 +90,10 @@ pub enum PresentationCommand {
         duration_ms: Option<u32>,
         easing: Option<TokenRef>,
     },
+    StaggeredReveal {
+        targets: Vec<NodeId>,
+        stagger_ms: Option<u32>,
+    },
 }
 
 /// Controls how long a step's animations run.

@@ -240,6 +240,205 @@ impl AnimationTrack {
     }
 }
 
+// ------------------------------------------------------------------
+// Preset track builders
+// ------------------------------------------------------------------
+
+/// Default animation duration in milliseconds (used when no token is set).
+pub const DEFAULT_ANIMATION_DURATION_MS: f32 = 400.0;
+
+/// Y-axis slide offset in CSS pixels for slide_in / slide_out.
+const SLIDE_OFFSET_PX: f32 = 40.0;
+
+/// Starting scale factor for scale_in / scale_out.
+const SCALE_IN_FROM: f32 = 0.85;
+
+/// Scale overshoot factor for pop_in.
+const POP_IN_OVERSHOOT: f32 = 1.15;
+
+/// Build enter-animation tracks for `node_id` using the named `preset`.
+///
+/// `duration_ms` is the full animation length; `offset_ms` shifts the
+/// animation forward in time (used for stagger effects).  Returns an empty
+/// `Vec` if the preset is empty or unrecognised.
+pub fn build_enter_tracks(
+    node_id: crate::node::NodeId,
+    preset: &str,
+    duration_ms: f32,
+    offset_ms: f32,
+) -> Vec<AnimationTrack> {
+    let start = offset_ms;
+    let end = offset_ms + duration_ms;
+    match preset {
+        "slide_in" => slide_in_tracks(node_id, start, end),
+        "scale_in" => scale_in_tracks(node_id, start, end),
+        "pop_in" => pop_in_tracks(node_id, start, end),
+        "grow" => grow_tracks(node_id, start, end),
+        // "fade_in" or any unrecognised name → fade
+        _ => fade_in_tracks(node_id, start, end),
+    }
+}
+
+/// Build exit-animation tracks for `node_id` using the named `preset`.
+pub fn build_exit_tracks(
+    node_id: crate::node::NodeId,
+    preset: &str,
+    duration_ms: f32,
+    offset_ms: f32,
+) -> Vec<AnimationTrack> {
+    let start = offset_ms;
+    let end = offset_ms + duration_ms;
+    match preset {
+        "slide_out" => slide_out_tracks(node_id, start, end),
+        "scale_out" => scale_out_tracks(node_id, start, end),
+        // "fade_out" or any unrecognised name → fade
+        _ => fade_out_tracks(node_id, start, end),
+    }
+}
+
+/// Return the maximum `time_ms` across all keyframes in all tracks (i.e. the
+/// total timeline length in ms).
+pub fn tracks_total_duration(tracks: &[AnimationTrack]) -> f32 {
+    tracks
+        .iter()
+        .flat_map(|t| t.keyframes.iter().map(|kf| kf.time_ms))
+        .fold(0.0_f32, f32::max)
+}
+
+// ── Individual preset builders ─────────────────────────────────────────────
+
+fn fade_in_tracks(node_id: crate::node::NodeId, start: f32, end: f32) -> Vec<AnimationTrack> {
+    vec![AnimationTrack {
+        node_id,
+        property: "opacity".into(),
+        keyframes: vec![
+            Keyframe {
+                time_ms: start,
+                value: serde_json::json!(0.0),
+                easing: Some(Easing::CubicBezier(CubicBezier::PRECISE)),
+            },
+            Keyframe { time_ms: end, value: serde_json::json!(1.0), easing: None },
+        ],
+    }]
+}
+
+fn fade_out_tracks(node_id: crate::node::NodeId, start: f32, end: f32) -> Vec<AnimationTrack> {
+    vec![AnimationTrack {
+        node_id,
+        property: "opacity".into(),
+        keyframes: vec![
+            Keyframe {
+                time_ms: start,
+                value: serde_json::json!(1.0),
+                easing: Some(Easing::CubicBezier(CubicBezier::PRECISE)),
+            },
+            Keyframe { time_ms: end, value: serde_json::json!(0.0), easing: None },
+        ],
+    }]
+}
+
+fn slide_in_tracks(node_id: crate::node::NodeId, start: f32, end: f32) -> Vec<AnimationTrack> {
+    let mut tracks = fade_in_tracks(node_id, start, end);
+    tracks.push(AnimationTrack {
+        node_id,
+        property: "transform.y_offset".into(),
+        keyframes: vec![
+            Keyframe {
+                time_ms: start,
+                value: serde_json::json!(SLIDE_OFFSET_PX),
+                easing: Some(Easing::CubicBezier(CubicBezier::PRECISE)),
+            },
+            Keyframe { time_ms: end, value: serde_json::json!(0.0), easing: None },
+        ],
+    });
+    tracks
+}
+
+fn slide_out_tracks(node_id: crate::node::NodeId, start: f32, end: f32) -> Vec<AnimationTrack> {
+    let mut tracks = fade_out_tracks(node_id, start, end);
+    tracks.push(AnimationTrack {
+        node_id,
+        property: "transform.y_offset".into(),
+        keyframes: vec![
+            Keyframe {
+                time_ms: start,
+                value: serde_json::json!(0.0),
+                easing: Some(Easing::CubicBezier(CubicBezier::PRECISE)),
+            },
+            Keyframe { time_ms: end, value: serde_json::json!(SLIDE_OFFSET_PX), easing: None },
+        ],
+    });
+    tracks
+}
+
+fn scale_in_tracks(node_id: crate::node::NodeId, start: f32, end: f32) -> Vec<AnimationTrack> {
+    let mut tracks = fade_in_tracks(node_id, start, end);
+    tracks.push(AnimationTrack {
+        node_id,
+        property: "transform.scale_anim".into(),
+        keyframes: vec![
+            Keyframe {
+                time_ms: start,
+                value: serde_json::json!(SCALE_IN_FROM),
+                easing: Some(Easing::CubicBezier(CubicBezier::PRECISE)),
+            },
+            Keyframe { time_ms: end, value: serde_json::json!(1.0), easing: None },
+        ],
+    });
+    tracks
+}
+
+fn scale_out_tracks(node_id: crate::node::NodeId, start: f32, end: f32) -> Vec<AnimationTrack> {
+    let mut tracks = fade_out_tracks(node_id, start, end);
+    tracks.push(AnimationTrack {
+        node_id,
+        property: "transform.scale_anim".into(),
+        keyframes: vec![
+            Keyframe {
+                time_ms: start,
+                value: serde_json::json!(1.0),
+                easing: Some(Easing::CubicBezier(CubicBezier::PRECISE)),
+            },
+            Keyframe { time_ms: end, value: serde_json::json!(SCALE_IN_FROM), easing: None },
+        ],
+    });
+    tracks
+}
+
+fn pop_in_tracks(node_id: crate::node::NodeId, start: f32, end: f32) -> Vec<AnimationTrack> {
+    let mut tracks = fade_in_tracks(node_id, start, end);
+    tracks.push(AnimationTrack {
+        node_id,
+        property: "transform.scale_anim".into(),
+        keyframes: vec![
+            Keyframe {
+                time_ms: start,
+                value: serde_json::json!(POP_IN_OVERSHOOT),
+                easing: Some(Easing::Spring(SpringParams::default())),
+            },
+            Keyframe { time_ms: end, value: serde_json::json!(1.0), easing: None },
+        ],
+    });
+    tracks
+}
+
+fn grow_tracks(node_id: crate::node::NodeId, start: f32, end: f32) -> Vec<AnimationTrack> {
+    vec![AnimationTrack {
+        node_id,
+        property: "transform.scale_y_anim".into(),
+        keyframes: vec![
+            Keyframe {
+                time_ms: start,
+                value: serde_json::json!(0.0),
+                easing: Some(Easing::CubicBezier(CubicBezier::PRECISE)),
+            },
+            Keyframe { time_ms: end, value: serde_json::json!(1.0), easing: None },
+        ],
+    }]
+}
+
+// ------------------------------------------------------------------
+
 /// Linearly interpolate between two JSON values using factor `t ∈ [0, 1]`.
 /// Only f64 numbers are interpolated; all other types snap to `b` when `t >= 0.5`.
 fn interpolate_json(a: &serde_json::Value, b: &serde_json::Value, t: f32) -> serde_json::Value {
@@ -342,5 +541,93 @@ mod tests {
         };
         let mid = track.evaluate_at(50.0).unwrap();
         assert!((mid.as_f64().unwrap() - 50.0).abs() < 0.01);
+    }
+
+    // ------------------------------------------------------------------
+    // Preset builder tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn fade_in_tracks_structure() {
+        let id = crate::node::NodeId::new();
+        let tracks = build_enter_tracks(id, "fade_in", 400.0, 0.0);
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].property, "opacity");
+        assert_eq!(tracks[0].keyframes[0].value, serde_json::json!(0.0));
+        assert_eq!(tracks[0].keyframes[1].value, serde_json::json!(1.0));
+        assert!((tracks[0].keyframes[1].time_ms - 400.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn fade_out_tracks_structure() {
+        let id = crate::node::NodeId::new();
+        let tracks = build_exit_tracks(id, "fade_out", 300.0, 0.0);
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].property, "opacity");
+        assert_eq!(tracks[0].keyframes[0].value, serde_json::json!(1.0));
+        assert_eq!(tracks[0].keyframes[1].value, serde_json::json!(0.0));
+        assert!((tracks[0].keyframes[1].time_ms - 300.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn slide_in_has_opacity_and_y_offset() {
+        let id = crate::node::NodeId::new();
+        let tracks = build_enter_tracks(id, "slide_in", 400.0, 0.0);
+        assert_eq!(tracks.len(), 2);
+        let props: Vec<&str> = tracks.iter().map(|t| t.property.as_str()).collect();
+        assert!(props.contains(&"opacity"));
+        assert!(props.contains(&"transform.y_offset"));
+    }
+
+    #[test]
+    fn scale_in_has_opacity_and_scale() {
+        let id = crate::node::NodeId::new();
+        let tracks = build_enter_tracks(id, "scale_in", 400.0, 0.0);
+        assert_eq!(tracks.len(), 2);
+        let props: Vec<&str> = tracks.iter().map(|t| t.property.as_str()).collect();
+        assert!(props.contains(&"opacity"));
+        assert!(props.contains(&"transform.scale_anim"));
+    }
+
+    #[test]
+    fn pop_in_scale_starts_above_one() {
+        let id = crate::node::NodeId::new();
+        let tracks = build_enter_tracks(id, "pop_in", 400.0, 0.0);
+        let scale_track = tracks.iter().find(|t| t.property == "transform.scale_anim").unwrap();
+        let start = scale_track.keyframes[0].value.as_f64().unwrap() as f32;
+        assert!(start > 1.0, "pop_in should overshoot above 1.0, got {start}");
+    }
+
+    #[test]
+    fn build_enter_tracks_offset_shifts_keyframes() {
+        let id = crate::node::NodeId::new();
+        let tracks = build_enter_tracks(id, "fade_in", 400.0, 100.0);
+        let opacity_track = &tracks[0];
+        assert!((opacity_track.keyframes[0].time_ms - 100.0).abs() < 0.1);
+        assert!((opacity_track.keyframes[1].time_ms - 500.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn tracks_total_duration_correct() {
+        let id = crate::node::NodeId::new();
+        let tracks = build_enter_tracks(id, "slide_in", 400.0, 50.0);
+        let total = tracks_total_duration(&tracks);
+        assert!((total - 450.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn unrecognised_enter_preset_defaults_to_fade() {
+        let id = crate::node::NodeId::new();
+        let tracks = build_enter_tracks(id, "unknown_preset", 200.0, 0.0);
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].property, "opacity");
+    }
+
+    #[test]
+    fn unrecognised_exit_preset_defaults_to_fade() {
+        let id = crate::node::NodeId::new();
+        let tracks = build_exit_tracks(id, "unknown_preset", 200.0, 0.0);
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].property, "opacity");
     }
 }

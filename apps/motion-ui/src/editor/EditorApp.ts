@@ -25,6 +25,8 @@ const LEGACY_UUID_INDEX = 0;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2;
 const ZOOM_STEP = 0.1;
+const DEFAULT_STAGGER_MS = 60;
+const DEFAULT_CAMERA_FOCUS_ZOOM = 1.25;
 
 let engine: EngineHandle | null = null;
 let renderer: Canvas2DRenderer | null = null;
@@ -34,6 +36,7 @@ let beforeUnloadRegistered = false;
 let keyboardShortcutsRegistered = false;
 let lastSavedSnapshot = "";
 let currentZoom = 1;
+type StepAction = "reveal" | "hide" | "focus" | "dim_others" | "camera_focus" | "staggered_reveal";
 
 export async function mountEditor(container: HTMLElement): Promise<void> {
   container.innerHTML = buildShellHtml();
@@ -129,6 +132,10 @@ function wireToolbar(container: HTMLElement): void {
   });
   container.querySelector("#btn-step-reveal")?.addEventListener("click", () => addStepFromSelection(container, "reveal"));
   container.querySelector("#btn-step-hide")?.addEventListener("click", () => addStepFromSelection(container, "hide"));
+  container.querySelector("#btn-step-focus")?.addEventListener("click", () => addStepFromSelection(container, "focus"));
+  container.querySelector("#btn-step-dim")?.addEventListener("click", () => addStepFromSelection(container, "dim_others"));
+  container.querySelector("#btn-step-camera")?.addEventListener("click", () => addStepFromSelection(container, "camera_focus"));
+  container.querySelector("#btn-step-stagger")?.addEventListener("click", () => addStepFromSelection(container, "staggered_reveal"));
   container.querySelector("#btn-share")?.addEventListener("click", () => {
     setToolbarMessage(container, "Share panel ready · Invite link copied");
   });
@@ -274,25 +281,29 @@ function wireKeyboardShortcuts(container: HTMLElement): void {
   keyboardShortcutsRegistered = true;
 }
 
-function addStepFromSelection(container: HTMLElement, mode: "reveal" | "hide"): void {
+function addStepFromSelection(container: HTMLElement, mode: StepAction): void {
   if (!engine) return;
   const inspector = parseInspector(engine.inspect());
   if (!inspector.scene_id || !inspector.selected) {
     setToolbarMessage(container, "Select a node first");
     return;
   }
+  const staggerTargets = mode === "staggered_reveal"
+    ? getStaggerTargetsForSelection(inspector.selected.id)
+    : null;
 
   const command = buildAddStepCommand(
     inspector.scene_id,
     inspector.selected.id,
     inspector.selected.name,
-    mode
+    mode,
+    staggerTargets,
   );
 
   engine.applyCommand(JSON.stringify(command));
   refreshEditorState(container);
-  saveDocument(container, `Autosaved ${mode} step`);
-  setToolbarMessage(container, `Added ${mode} step for ${inspector.selected.name}`);
+  saveDocument(container, `Autosaved ${mode.replaceAll("_", " ")} step`);
+  setToolbarMessage(container, `Added ${mode.replaceAll("_", " ")} step for ${inspector.selected.name}`);
 }
 
 function showPreflight(container: HTMLElement): void {
@@ -430,6 +441,7 @@ function refreshInspector(container: HTMLElement): void {
     <label class="checkbox-row"><input data-property="locked" type="checkbox" ${selected.locked ? "checked" : ""} /> Locked</label>
     <label>Enter preset<input data-property="animation.enter_preset" type="text" value="${escapeHtml(selected.animation.enter_preset ?? "")}" placeholder="fade_in" /></label>
     <label>Exit preset<input data-property="animation.exit_preset" type="text" value="${escapeHtml(selected.animation.exit_preset ?? "")}" placeholder="fade_out" /></label>
+    <label>Stagger delay (ms)<input data-property="animation.stagger_delay" type="number" step="1" min="0" value="${selected.animation.stagger_delay ?? ""}" placeholder="45" /></label>
     ${selected.text ? `
       <label>Text content<textarea data-property="content" rows="4">${escapeHtml(selected.text.content)}</textarea></label>
       <label>Font size<input data-property="font_size" type="number" step="1" min="1" value="${selected.text.font_size ?? 16}" /></label>
@@ -441,7 +453,7 @@ function refreshInspector(container: HTMLElement): void {
       if (!engine || !inspector.scene_id) return;
       const property = control.dataset.property;
       if (!property) return;
-      const value = getControlValue(control);
+      const value = getControlValue(control, property);
       const command = {
         type: "set_property",
         scene_id: inspector.scene_id,
@@ -474,7 +486,7 @@ function refreshTimeline(container: HTMLElement): void {
   const selected = parseInspector(engine.inspect()).selected;
   if (presetLabel) {
     presetLabel.textContent = selected
-      ? `Enter: ${selected.animation.enter_preset ?? "—"} · Exit: ${selected.animation.exit_preset ?? "—"}`
+      ? `Enter: ${selected.animation.enter_preset ?? "—"} · Exit: ${selected.animation.exit_preset ?? "—"} · Stagger: ${selected.animation.stagger_delay ?? "—"}ms`
       : "Select a node to inspect enter/exit presets.";
   }
 
@@ -575,11 +587,15 @@ function adjustCanvasZoom(container: HTMLElement, delta: number): void {
   setCanvasZoom(container, currentZoom + delta, "Canvas zoom");
 }
 
-function getControlValue(control: HTMLInputElement | HTMLTextAreaElement): boolean | number | string | null {
+function getControlValue(
+  control: HTMLInputElement | HTMLTextAreaElement,
+  property?: string,
+): boolean | number | string | null {
   if (control instanceof HTMLInputElement && control.type === "checkbox") {
     return control.checked;
   }
   if (control instanceof HTMLInputElement && control.type === "number") {
+    if (control.value.trim() === "" && property === "animation.stagger_delay") return null;
     return Number(control.value);
   }
   const trimmed = control.value.trim();
@@ -641,21 +657,48 @@ function buildAddStepCommand(
   sceneId: string,
   targetId: string,
   targetName: string,
-  mode: "reveal" | "hide"
+  mode: StepAction,
+  staggerTargets: string[] | null,
 ): Record<string, unknown> {
+  const prettyMode = mode
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+  const semanticCommand =
+    mode === "staggered_reveal"
+      ? {
+        type: mode,
+        targets: (staggerTargets ?? [targetId]).map((id) => ({ Uuid: id })),
+        stagger_ms: DEFAULT_STAGGER_MS,
+      }
+      : mode === "camera_focus"
+        ? {
+          type: mode,
+          target: { Uuid: targetId },
+          zoom: DEFAULT_CAMERA_FOCUS_ZOOM,
+        }
+        : {
+          type: mode,
+          target: { Uuid: targetId },
+        };
   return {
     type: "add_step",
     scene_id: { Uuid: sceneId },
-    name: `${mode === "reveal" ? "Reveal" : "Hide"} ${targetName}`,
-    commands: [
-      {
-        type: mode,
-        target: { Uuid: targetId },
-      },
-    ],
+    name: `${prettyMode} ${targetName}`,
+    commands: [semanticCommand],
     transition: null,
     notes: null,
   };
+}
+
+function getStaggerTargetsForSelection(selectedId: string): string[] {
+  if (!engine) return [selectedId];
+  const raw = safeParseJson<Record<string, unknown>>(engine.serializeDocument());
+  const nodes = (raw?.nodes && typeof raw.nodes === "object")
+    ? (raw.nodes as Record<string, unknown>)
+    : {};
+  const map = buildNodeMap(nodes);
+  return map.get(selectedId)?.children ?? [selectedId];
 }
 
 function buildNodeMap(nodes: Record<string, unknown>): Map<string, SerializedNode> {
@@ -700,6 +743,10 @@ function buildShellHtml(): string {
             <button id="btn-redo" title="Redo (Ctrl+Shift+Z)">↪ Redo</button>
             <button id="btn-step-reveal" title="Create reveal step from selection">Reveal</button>
             <button id="btn-step-hide" title="Create hide step from selection">Hide</button>
+            <button id="btn-step-focus" title="Create focus step from selection">Focus</button>
+            <button id="btn-step-dim" title="Create dim-others step from selection">Dim Others</button>
+            <button id="btn-step-camera" title="Create camera focus step from selection">Camera Focus</button>
+            <button id="btn-step-stagger" title="Create staggered reveal from selected node children">Staggered Reveal</button>
             <button id="btn-preflight" title="Run preflight checks">Preflight</button>
             <button id="btn-brand" title="Load token JSON">Brand</button>
             <button id="btn-reset" title="Reset to a fresh demo document">Reset</button>
