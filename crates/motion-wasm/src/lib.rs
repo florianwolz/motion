@@ -4,7 +4,7 @@
 //! surface area.  High-frequency rendering and interaction logic stays in Rust.
 
 use motion_core::{
-    command::{Command, SetPropertyCommand},
+    command::Command,
     document::Document,
     engine::DocumentEngine,
     node::{NodeId, NodeKind, StyleValue, Transform},
