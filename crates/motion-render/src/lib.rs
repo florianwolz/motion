@@ -6,4 +6,5 @@ pub mod passes;
 pub mod render_tree;
 
 pub use builder::RenderTreeBuilder;
+pub use passes::{assign_draw_pass, DrawPass, RenderTier};
 pub use render_tree::{AnimationFrame, RenderNode, RenderTree};

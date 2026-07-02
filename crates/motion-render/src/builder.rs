@@ -14,6 +14,7 @@ use motion_core::{
 
 use crate::{
     material::{CardMaterial, GlassMaterial, GlowMaterial, GradientSpec, GradientStop, ResolvedMaterial},
+    passes::assign_draw_pass,
     render_tree::{AnimationFrame, RenderContent, RenderNode, RenderTree, ShapeKind},
 };
 
@@ -87,6 +88,7 @@ impl<'a> RenderTreeBuilder<'a> {
                 material: None,
                 blur_radius: 0.0,
                 clip: false,
+                draw_pass: crate::passes::DrawPass::Shape,
             });
             return;
         }
@@ -123,6 +125,8 @@ impl<'a> RenderTreeBuilder<'a> {
             _ => false,
         };
 
+        let draw_pass = assign_draw_pass(&content, material.as_ref(), blur_radius);
+
         tree.nodes.push(RenderNode {
             id: node_id,
             transform,
@@ -133,6 +137,7 @@ impl<'a> RenderTreeBuilder<'a> {
             material,
             blur_radius,
             clip,
+            draw_pass,
         });
 
         // Recurse into children.
@@ -529,5 +534,175 @@ mod tests {
 
         let rn = tree.nodes.iter().find(|n| n.id == shape_id).unwrap();
         assert!((rn.transform.y - (base_y + 40.0)).abs() < 0.01);
+    }
+
+    // ── Draw pass assignment ───────────────────────────────────────────────────
+
+    #[test]
+    fn shape_node_gets_shape_pass() {
+        let (mut doc, sid) = make_doc();
+        let root_id = doc.scenes[0].root;
+        let mut shape = Node::new("Box", NodeKind::Shape(ShapeNode { kind: CoreShapeKind::Rectangle }));
+        shape.parent = Some(root_id);
+        let shape_id = shape.id;
+        doc.nodes.get_mut(&root_id).unwrap().children.push(shape_id);
+        doc.insert_node(shape);
+
+        let overlay = PresentationOverlay::default();
+        let builder = RenderTreeBuilder::new(&doc, &overlay);
+        let tree = builder.build(sid, 1920.0, 1080.0, 1.0).unwrap();
+        let rn = tree.nodes.iter().find(|n| n.id == shape_id).unwrap();
+        assert_eq!(rn.draw_pass, crate::passes::DrawPass::Shape);
+    }
+
+    #[test]
+    fn text_node_gets_text_pass() {
+        let (mut doc, sid) = make_doc();
+        let root_id = doc.scenes[0].root;
+        let mut text_node = Node::new("Title", NodeKind::Text(TextNode::default()));
+        text_node.parent = Some(root_id);
+        let text_id = text_node.id;
+        doc.nodes.get_mut(&root_id).unwrap().children.push(text_id);
+        doc.insert_node(text_node);
+
+        let overlay = PresentationOverlay::default();
+        let builder = RenderTreeBuilder::new(&doc, &overlay);
+        let tree = builder.build(sid, 1920.0, 1080.0, 1.0).unwrap();
+        let rn = tree.nodes.iter().find(|n| n.id == text_id).unwrap();
+        assert_eq!(rn.draw_pass, crate::passes::DrawPass::Text);
+    }
+
+    #[test]
+    fn hidden_node_placeholder_has_shape_pass() {
+        let (mut doc, sid) = make_doc();
+        let root_id = doc.scenes[0].root;
+        let mut shape = Node::new("Hidden", NodeKind::Shape(ShapeNode { kind: CoreShapeKind::Rectangle }));
+        shape.parent = Some(root_id);
+        let shape_id = shape.id;
+        doc.nodes.get_mut(&root_id).unwrap().children.push(shape_id);
+        doc.insert_node(shape);
+
+        let mut overlay = PresentationOverlay::default();
+        overlay.node_states.entry(shape_id).or_default().visible = Some(false);
+
+        let builder = RenderTreeBuilder::new(&doc, &overlay);
+        let tree = builder.build(sid, 1920.0, 1080.0, 1.0).unwrap();
+        let rn = tree.nodes.iter().find(|n| n.id == shape_id).unwrap();
+        assert!(!rn.visible);
+        assert_eq!(rn.draw_pass, crate::passes::DrawPass::Shape);
+    }
+
+    #[test]
+    fn frame_root_gets_shape_pass() {
+        let (doc, sid) = make_doc();
+        let overlay = PresentationOverlay::default();
+        let builder = RenderTreeBuilder::new(&doc, &overlay);
+        let tree = builder.build(sid, 1920.0, 1080.0, 1.0).unwrap();
+        let root = &tree.nodes[0];
+        assert_eq!(root.draw_pass, crate::passes::DrawPass::Shape);
+    }
+
+    #[test]
+    fn blurred_node_gets_blur_pass() {
+        use motion_core::node::{StyleValue};
+        let (mut doc, sid) = make_doc();
+        let root_id = doc.scenes[0].root;
+        let mut shape = Node::new("Blurry", NodeKind::Shape(ShapeNode { kind: CoreShapeKind::Rectangle }));
+        shape.parent = Some(root_id);
+        shape.style.blur_radius = Some(StyleValue::Literal(8.0));
+        let shape_id = shape.id;
+        doc.nodes.get_mut(&root_id).unwrap().children.push(shape_id);
+        doc.insert_node(shape);
+
+        let overlay = PresentationOverlay::default();
+        let builder = RenderTreeBuilder::new(&doc, &overlay);
+        let tree = builder.build(sid, 1920.0, 1080.0, 1.0).unwrap();
+        let rn = tree.nodes.iter().find(|n| n.id == shape_id).unwrap();
+        assert_eq!(rn.draw_pass, crate::passes::DrawPass::Blur);
+    }
+
+    #[test]
+    fn glass_material_node_gets_glass_pass() {
+        use motion_core::node::StyleValue;
+        let (mut doc, sid) = make_doc();
+        let root_id = doc.scenes[0].root;
+        let mut shape = Node::new("Glass", NodeKind::Shape(ShapeNode { kind: CoreShapeKind::Rectangle }));
+        shape.parent = Some(root_id);
+        shape.style.material = Some(StyleValue::Literal("glass".into()));
+        let shape_id = shape.id;
+        doc.nodes.get_mut(&root_id).unwrap().children.push(shape_id);
+        doc.insert_node(shape);
+
+        let overlay = PresentationOverlay::default();
+        let builder = RenderTreeBuilder::new(&doc, &overlay);
+        let tree = builder.build(sid, 1920.0, 1080.0, 1.0).unwrap();
+        let rn = tree.nodes.iter().find(|n| n.id == shape_id).unwrap();
+        assert_eq!(rn.draw_pass, crate::passes::DrawPass::Glass);
+    }
+
+    #[test]
+    fn card_material_node_gets_shadow_pass() {
+        use motion_core::node::StyleValue;
+        let (mut doc, sid) = make_doc();
+        let root_id = doc.scenes[0].root;
+        let mut shape = Node::new("Card", NodeKind::Shape(ShapeNode { kind: CoreShapeKind::Rectangle }));
+        shape.parent = Some(root_id);
+        shape.style.material = Some(StyleValue::Literal("card".into()));
+        let shape_id = shape.id;
+        doc.nodes.get_mut(&root_id).unwrap().children.push(shape_id);
+        doc.insert_node(shape);
+
+        let overlay = PresentationOverlay::default();
+        let builder = RenderTreeBuilder::new(&doc, &overlay);
+        let tree = builder.build(sid, 1920.0, 1080.0, 1.0).unwrap();
+        let rn = tree.nodes.iter().find(|n| n.id == shape_id).unwrap();
+        // MatteCard is a CSS drop-shadow surface — it renders in the Shape pass.
+        assert_eq!(rn.draw_pass, crate::passes::DrawPass::Shape);
+    }
+
+    #[test]
+    fn glow_material_node_gets_composite_pass() {
+        use motion_core::node::StyleValue;
+        let (mut doc, sid) = make_doc();
+        let root_id = doc.scenes[0].root;
+        let mut shape = Node::new("Glow", NodeKind::Shape(ShapeNode { kind: CoreShapeKind::Rectangle }));
+        shape.parent = Some(root_id);
+        shape.style.material = Some(StyleValue::Literal("glow".into()));
+        let shape_id = shape.id;
+        doc.nodes.get_mut(&root_id).unwrap().children.push(shape_id);
+        doc.insert_node(shape);
+
+        let overlay = PresentationOverlay::default();
+        let builder = RenderTreeBuilder::new(&doc, &overlay);
+        let tree = builder.build(sid, 1920.0, 1080.0, 1.0).unwrap();
+        let rn = tree.nodes.iter().find(|n| n.id == shape_id).unwrap();
+        assert_eq!(rn.draw_pass, crate::passes::DrawPass::Composite);
+    }
+
+    #[test]
+    fn pass_ordered_traversal_shape_before_text() {
+        let (mut doc, sid) = make_doc();
+        let root_id = doc.scenes[0].root;
+
+        let mut text_node = Node::new("Title", NodeKind::Text(TextNode::default()));
+        text_node.parent = Some(root_id);
+        let text_id = text_node.id;
+        doc.nodes.get_mut(&root_id).unwrap().children.push(text_id);
+        doc.insert_node(text_node);
+
+        let mut shape = Node::new("BgBox", NodeKind::Shape(ShapeNode { kind: CoreShapeKind::Rectangle }));
+        shape.parent = Some(root_id);
+        let shape_id = shape.id;
+        doc.nodes.get_mut(&root_id).unwrap().children.push(shape_id);
+        doc.insert_node(shape);
+
+        let overlay = PresentationOverlay::default();
+        let builder = RenderTreeBuilder::new(&doc, &overlay);
+        let tree = builder.build(sid, 1920.0, 1080.0, 1.0).unwrap();
+
+        let ordered = tree.pass_ordered_nodes();
+        let shape_pos = ordered.iter().position(|n| n.id == shape_id).unwrap();
+        let text_pos = ordered.iter().position(|n| n.id == text_id).unwrap();
+        assert!(shape_pos < text_pos, "shape should be drawn before text");
     }
 }
