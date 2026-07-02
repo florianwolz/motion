@@ -6,6 +6,7 @@
  */
 
 export function buildDemoDocumentJson(): string {
+  const DEMO_SUBTITLE_ENTER_PRESET = "slide_in";
   const rootId = crypto.randomUUID();
   const titleId = crypto.randomUUID();
   const subtitleId = crypto.randomUUID();
@@ -76,6 +77,7 @@ export function buildDemoDocumentJson(): string {
         160, 530,
         "Live motion-graphic presentations — built in Rust.",
         "color.text.secondary", "typography.body.font", "typography.body.size",
+        { visible: false, enterPreset: DEMO_SUBTITLE_ENTER_PRESET },
       ),
     },
   };
@@ -85,7 +87,6 @@ export function buildDemoDocumentJson(): string {
     rootId, "Root", null, 0, 0, 1920, 1080, "color.background",
     [rectId, titleId, subtitleId],
   );
-
   return JSON.stringify(doc);
 }
 
@@ -154,6 +155,7 @@ function makeTextNode(
   id: string, name: string, parent: string | null,
   x: number, y: number,
   content: string, colorToken: string, fontToken: string, sizeToken: string,
+  options: { visible?: boolean; enterPreset?: string | null } = {},
 ) {
   return {
     id,
@@ -170,9 +172,9 @@ function makeTextNode(
       material: null,
     },
     layout: { layout_mode: "none", padding: null, gap: null, align_items: null, justify_content: null },
-    animation: { enter_preset: null, exit_preset: null, stagger_delay: null },
+    animation: { enter_preset: options.enterPreset ?? null, exit_preset: null, stagger_delay: null },
     semantic: { role: null, label: null },
-    visible: true,
+    visible: options.visible ?? true,
     locked: false,
     data: {
       type: "text",
