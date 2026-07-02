@@ -1,0 +1,12 @@
+[package]
+name = "motion-render"
+description = "Renderer abstraction, render tree, GPU resources, and draw passes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+motion-core = { path = "../motion-core" }
+serde.workspace = true
+thiserror.workspace = true

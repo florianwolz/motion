@@ -1,0 +1,17 @@
+{
+  "name": "motion-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser-based editor and presentation shell for the Motion engine",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "vite": "^6.4.3"
+  }
+}
