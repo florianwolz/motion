@@ -4,15 +4,18 @@
 //! surface area.  High-frequency rendering and interaction logic stays in Rust.
 
 use motion_core::{
+    animation::{
+        build_enter_tracks, build_exit_tracks, AnimationTrack, DEFAULT_ANIMATION_DURATION_MS,
+    },
     brand::load_brand_package as load_brand_package_into_document,
     command::Command,
     document::Document,
     engine::DocumentEngine,
     node::{NodeId, NodeKind, StyleValue, Transform},
     preflight::run_document_preflight,
-    scene::SceneId,
+    scene::{PresentationCommand, SceneId},
 };
-use motion_render::RenderTreeBuilder;
+use motion_render::{AnimationFrame, RenderTreeBuilder};
 use serde_json::json;
 use wasm_bindgen::prelude::*;
 
@@ -60,6 +63,11 @@ pub struct MotionEngine {
     device_pixel_ratio: f32,
     selection: Option<NodeId>,
     interaction: Option<InteractionState>,
+    /// Tracks that are currently animating, built on each step advance.
+    active_tracks: Vec<AnimationTrack>,
+    /// Wall-clock millisecond timestamp at which the current animation started.
+    /// `None` until the first `render()` call after a step change.
+    animation_start_ms: Option<f64>,
 }
 
 #[wasm_bindgen]
@@ -75,6 +83,8 @@ impl MotionEngine {
             device_pixel_ratio: 1.0,
             selection: None,
             interaction: None,
+            active_tracks: Vec::new(),
+            animation_start_ms: None,
         }
     }
 
@@ -86,6 +96,8 @@ impl MotionEngine {
         self.inner = DocumentEngine::new(doc);
         self.selection = None;
         self.interaction = None;
+        self.active_tracks.clear();
+        self.animation_start_ms = None;
         Ok(())
     }
 
@@ -106,12 +118,27 @@ impl MotionEngine {
 
     /// Advance one animation frame.
     #[wasm_bindgen(js_name = render)]
-    pub fn render(&mut self, _timestamp: f64) -> String {
+    pub fn render(&mut self, timestamp: f64) -> String {
         let scene_id = match self.inner.current_scene() {
             Some(s) => s.id,
             None => return "{}".to_string(),
         };
-        let builder = RenderTreeBuilder::new(self.inner.document(), self.inner.overlay());
+
+        // Evaluate active animation tracks into an AnimationFrame.
+        let anim_frame = if self.active_tracks.is_empty() {
+            AnimationFrame::default()
+        } else {
+            // Capture the start time on the first render call after a step change.
+            let start = *self.animation_start_ms.get_or_insert(timestamp);
+            let elapsed_ms = (timestamp - start) as f32;
+            evaluate_tracks(&self.active_tracks, elapsed_ms)
+        };
+
+        let builder = RenderTreeBuilder::with_animation(
+            self.inner.document(),
+            self.inner.overlay(),
+            &anim_frame,
+        );
         match builder.build(
             scene_id,
             self.viewport_width,
@@ -265,13 +292,24 @@ impl MotionEngine {
     /// Advance to the next presentation step.
     #[wasm_bindgen(js_name = nextStep)]
     pub fn next_step(&mut self) -> bool {
-        self.inner.next_step()
+        let changed = self.inner.next_step();
+        if changed {
+            self.start_step_animation(true);
+        }
+        changed
     }
 
     /// Go back to the previous presentation step.
     #[wasm_bindgen(js_name = previousStep)]
     pub fn previous_step(&mut self) -> bool {
-        self.inner.previous_step()
+        let changed = self.inner.previous_step();
+        if changed {
+            // Going backwards plays exit animations in reverse — for now clear
+            // any in-progress animation to snap to the previous state cleanly.
+            self.active_tracks.clear();
+            self.animation_start_ms = None;
+        }
+        changed
     }
 
     /// Jump to a scene by its UUID string.
@@ -279,11 +317,16 @@ impl MotionEngine {
     pub fn jump_to_scene(&mut self, scene_id: &str) -> bool {
         self.selection = None;
         self.interaction = None;
-        if let Ok(uuid) = scene_id.parse::<uuid::Uuid>() {
+        let changed = if let Ok(uuid) = scene_id.parse::<uuid::Uuid>() {
             self.inner.jump_to_scene(SceneId(uuid))
         } else {
             false
+        };
+        if changed {
+            self.active_tracks.clear();
+            self.animation_start_ms = None;
         }
+        changed
     }
 
     /// Select a node by UUID if it exists in the current scene subtree.
@@ -308,6 +351,8 @@ impl MotionEngine {
     #[wasm_bindgen(js_name = restartScene)]
     pub fn restart_scene(&mut self) {
         self.inner.restart_scene();
+        self.active_tracks.clear();
+        self.animation_start_ms = None;
     }
 
     /// Return the current scene and step position as a JSON string.
@@ -512,6 +557,56 @@ impl MotionEngine {
 
         absolute
     }
+
+    /// Build animation tracks for the current step and store them.
+    /// Called after a successful forward step advance.
+    fn start_step_animation(&mut self, forward: bool) {
+        self.active_tracks.clear();
+        self.animation_start_ms = None;
+
+        if !forward {
+            return;
+        }
+
+        let Some(scene) = self.inner.current_scene() else { return };
+        let Some(step_idx) = self.inner.position().1 else { return };
+        let Some(step) = scene.steps.get(step_idx) else { return };
+
+        let doc = self.inner.document();
+        let mut tracks: Vec<AnimationTrack> = Vec::new();
+
+        for cmd in &step.commands {
+            match cmd {
+                PresentationCommand::Reveal { target } => {
+                    let preset = node_enter_preset(doc, *target);
+                    let stagger = node_stagger_delay(doc, *target);
+                    let mut node_tracks =
+                        build_enter_tracks(*target, &preset, DEFAULT_ANIMATION_DURATION_MS, stagger);
+                    tracks.append(&mut node_tracks);
+                }
+                PresentationCommand::Hide { target } => {
+                    let preset = node_exit_preset(doc, *target);
+                    let stagger = node_stagger_delay(doc, *target);
+                    let mut node_tracks =
+                        build_exit_tracks(*target, &preset, DEFAULT_ANIMATION_DURATION_MS, stagger);
+                    tracks.append(&mut node_tracks);
+                }
+                PresentationCommand::StaggeredReveal { targets, stagger_ms } => {
+                    let base_stagger = stagger_ms.map(|v| v as f32).unwrap_or(80.0);
+                    for (i, target) in targets.iter().enumerate() {
+                        let preset = node_enter_preset(doc, *target);
+                        let offset = base_stagger * i as f32;
+                        let mut node_tracks =
+                            build_enter_tracks(*target, &preset, DEFAULT_ANIMATION_DURATION_MS, offset);
+                        tracks.append(&mut node_tracks);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        self.active_tracks = tracks;
+    }
 }
 
 fn collect_draw_order(document: &Document, node_id: NodeId, out: &mut Vec<NodeId>) {
@@ -576,4 +671,60 @@ fn style_value_to_string(value: Option<&StyleValue<String>>) -> Option<String> {
         Some(StyleValue::Token(token)) => Some(token.path.clone()),
         None => None,
     }
+}
+
+/// Return the enter-animation preset name for a node, defaulting to `"fade_in"`.
+fn node_enter_preset(doc: &Document, node_id: NodeId) -> String {
+    doc.node(node_id)
+        .and_then(|n| n.animation.enter_preset.as_ref())
+        .and_then(|sv| doc.tokens.resolve_string(sv))
+        .map(|s| s.to_owned())
+        .unwrap_or_else(|| "fade_in".into())
+}
+
+/// Return the exit-animation preset name for a node, defaulting to `"fade_out"`.
+fn node_exit_preset(doc: &Document, node_id: NodeId) -> String {
+    doc.node(node_id)
+        .and_then(|n| n.animation.exit_preset.as_ref())
+        .and_then(|sv| doc.tokens.resolve_string(sv))
+        .map(|s| s.to_owned())
+        .unwrap_or_else(|| "fade_out".into())
+}
+
+/// Return the stagger delay in ms for a node, defaulting to `0.0`.
+fn node_stagger_delay(doc: &Document, node_id: NodeId) -> f32 {
+    doc.node(node_id)
+        .and_then(|n| n.animation.stagger_delay.as_ref())
+        .and_then(|sv| doc.tokens.resolve_f32(sv))
+        .unwrap_or(0.0)
+}
+
+/// Evaluate a slice of animation tracks at `elapsed_ms` and collect the
+/// results into an [`AnimationFrame`].
+fn evaluate_tracks(tracks: &[AnimationTrack], elapsed_ms: f32) -> AnimationFrame {
+    let mut frame = AnimationFrame::default();
+
+    for track in tracks {
+        let Some(value) = track.evaluate_at(elapsed_ms) else { continue };
+        match track.property.as_str() {
+            "opacity" => {
+                if let Some(v) = value.as_f64() {
+                    frame.opacity.insert(track.node_id, v as f32);
+                }
+            }
+            "transform.scale_anim" | "transform.scale_y_anim" => {
+                if let Some(v) = value.as_f64() {
+                    frame.scale.insert(track.node_id, v as f32);
+                }
+            }
+            "transform.y_offset" => {
+                if let Some(v) = value.as_f64() {
+                    frame.y_offset.insert(track.node_id, v as f32);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    frame
 }

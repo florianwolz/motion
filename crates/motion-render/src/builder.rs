@@ -14,7 +14,7 @@ use motion_core::{
 
 use crate::{
     material::{CardMaterial, GlassMaterial, GlowMaterial, GradientSpec, GradientStop, ResolvedMaterial},
-    render_tree::{RenderContent, RenderNode, RenderTree, ShapeKind},
+    render_tree::{AnimationFrame, RenderContent, RenderNode, RenderTree, ShapeKind},
 };
 
 const DEFAULT_DIM_OTHERS_FACTOR: f32 = 0.3;
@@ -24,12 +24,24 @@ pub struct RenderTreeBuilder<'a> {
     document: &'a Document,
     overlay: &'a PresentationOverlay,
     tokens: &'a TokenStore,
+    animation: &'a AnimationFrame,
 }
 
 impl<'a> RenderTreeBuilder<'a> {
-    /// Create a new builder.
+    /// Create a new builder with no active animation.
     pub fn new(document: &'a Document, overlay: &'a PresentationOverlay) -> Self {
-        Self { document, overlay, tokens: &document.tokens }
+        static EMPTY_FRAME: std::sync::OnceLock<AnimationFrame> = std::sync::OnceLock::new();
+        let animation = EMPTY_FRAME.get_or_init(AnimationFrame::default);
+        Self { document, overlay, tokens: &document.tokens, animation }
+    }
+
+    /// Create a new builder with an active animation frame.
+    pub fn with_animation(
+        document: &'a Document,
+        overlay: &'a PresentationOverlay,
+        animation: &'a AnimationFrame,
+    ) -> Self {
+        Self { document, overlay, tokens: &document.tokens, animation }
     }
 
     /// Build a render tree for the given scene.
@@ -79,20 +91,45 @@ impl<'a> RenderTreeBuilder<'a> {
             return;
         }
 
-        // Opacity: multiply node opacity by dim factor from overlay.
-        let base_opacity = self.tokens.resolve_f32(&node.style.opacity).unwrap_or(1.0);
-        let dim = if let Some(target) = self.overlay.dim_others_target {
-            if target == node_id {
-                overlay_state.map(|s| s.dim_factor).unwrap_or(1.0)
+        // Opacity: animation override → node base opacity × dim factor.
+        let opacity = if let Some(&anim_opacity) = self.animation.opacity.get(&node_id) {
+            let dim = if let Some(target) = self.overlay.dim_others_target {
+                if target == node_id {
+                    overlay_state.map(|s| s.dim_factor).unwrap_or(1.0)
+                } else {
+                    overlay_state
+                        .map(|s| s.dim_factor)
+                        .unwrap_or(DEFAULT_DIM_OTHERS_FACTOR)
+                }
             } else {
-                overlay_state
-                    .map(|s| s.dim_factor)
-                    .unwrap_or(DEFAULT_DIM_OTHERS_FACTOR)
-            }
+                overlay_state.map(|s| s.dim_factor).unwrap_or(1.0)
+            };
+            (anim_opacity * dim).clamp(0.0, 1.0)
         } else {
-            overlay_state.map(|s| s.dim_factor).unwrap_or(1.0)
+            let base_opacity = self.tokens.resolve_f32(&node.style.opacity).unwrap_or(1.0);
+            let dim = if let Some(target) = self.overlay.dim_others_target {
+                if target == node_id {
+                    overlay_state.map(|s| s.dim_factor).unwrap_or(1.0)
+                } else {
+                    overlay_state
+                        .map(|s| s.dim_factor)
+                        .unwrap_or(DEFAULT_DIM_OTHERS_FACTOR)
+                }
+            } else {
+                overlay_state.map(|s| s.dim_factor).unwrap_or(1.0)
+            };
+            (base_opacity * dim).clamp(0.0, 1.0)
         };
-        let opacity = (base_opacity * dim).clamp(0.0, 1.0);
+
+        // Transform: apply animated scale and y-offset on top of the node's own transform.
+        let mut transform = node.transform.clone();
+        if let Some(&scale) = self.animation.scale.get(&node_id) {
+            transform.scale_x *= scale;
+            transform.scale_y *= scale;
+        }
+        if let Some(&dy) = self.animation.y_offset.get(&node_id) {
+            transform.y += dy;
+        }
 
         let blur_radius = self
             .tokens
@@ -109,7 +146,7 @@ impl<'a> RenderTreeBuilder<'a> {
 
         tree.nodes.push(RenderNode {
             id: node_id,
-            transform: node.transform.clone(),
+            transform,
             opacity,
             visible: true,
             children: node.children.clone(),
@@ -419,5 +456,71 @@ mod tests {
         const FLOAT_COMPARISON_TOLERANCE: f32 = 0.01;
         assert_eq!(first_node.opacity, 1.0);
         assert!(second_node.opacity < DEFAULT_DIM_OTHERS_FACTOR + FLOAT_COMPARISON_TOLERANCE);
+    }
+
+    #[test]
+    fn animation_frame_opacity_override_applied() {
+        let (mut doc, sid) = make_doc();
+        let root_id = doc.scenes[0].root;
+        let mut shape = Node::new("Box", NodeKind::Shape(ShapeNode { kind: CoreShapeKind::Rectangle }));
+        shape.parent = Some(root_id);
+        let shape_id = shape.id;
+        doc.nodes.get_mut(&root_id).unwrap().children.push(shape_id);
+        doc.insert_node(shape);
+
+        let overlay = PresentationOverlay::default();
+        let mut anim = AnimationFrame::default();
+        anim.opacity.insert(shape_id, 0.5);
+
+        let builder = RenderTreeBuilder::with_animation(&doc, &overlay, &anim);
+        let tree = builder.build(sid, 1920.0, 1080.0, 1.0).unwrap();
+
+        let rn = tree.nodes.iter().find(|n| n.id == shape_id).unwrap();
+        assert!((rn.opacity - 0.5).abs() < 0.01, "opacity should be 0.5 but got {}", rn.opacity);
+    }
+
+    #[test]
+    fn animation_frame_scale_override_applied() {
+        let (mut doc, sid) = make_doc();
+        let root_id = doc.scenes[0].root;
+        let mut shape = Node::new("Box", NodeKind::Shape(ShapeNode { kind: CoreShapeKind::Rectangle }));
+        shape.parent = Some(root_id);
+        let shape_id = shape.id;
+        doc.nodes.get_mut(&root_id).unwrap().children.push(shape_id);
+        doc.insert_node(shape);
+
+        let overlay = PresentationOverlay::default();
+        let mut anim = AnimationFrame::default();
+        anim.scale.insert(shape_id, 0.5);
+
+        let builder = RenderTreeBuilder::with_animation(&doc, &overlay, &anim);
+        let tree = builder.build(sid, 1920.0, 1080.0, 1.0).unwrap();
+
+        let rn = tree.nodes.iter().find(|n| n.id == shape_id).unwrap();
+        // Default scale_x/y is 1.0, multiplied by 0.5
+        assert!((rn.transform.scale_x - 0.5).abs() < 0.01);
+        assert!((rn.transform.scale_y - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn animation_frame_y_offset_applied() {
+        let (mut doc, sid) = make_doc();
+        let root_id = doc.scenes[0].root;
+        let mut shape = Node::new("Box", NodeKind::Shape(ShapeNode { kind: CoreShapeKind::Rectangle }));
+        shape.parent = Some(root_id);
+        let shape_id = shape.id;
+        doc.nodes.get_mut(&root_id).unwrap().children.push(shape_id);
+        doc.insert_node(shape);
+
+        let base_y = doc.nodes[&shape_id].transform.y;
+        let overlay = PresentationOverlay::default();
+        let mut anim = AnimationFrame::default();
+        anim.y_offset.insert(shape_id, 40.0);
+
+        let builder = RenderTreeBuilder::with_animation(&doc, &overlay, &anim);
+        let tree = builder.build(sid, 1920.0, 1080.0, 1.0).unwrap();
+
+        let rn = tree.nodes.iter().find(|n| n.id == shape_id).unwrap();
+        assert!((rn.transform.y - (base_y + 40.0)).abs() < 0.01);
     }
 }

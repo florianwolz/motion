@@ -1,9 +1,27 @@
 //! The render tree — a resolved, numeric representation of the scene ready for GPU submission.
 
+use std::collections::HashMap;
+
 use motion_core::node::{Color, NodeId, Transform};
 use serde::{Deserialize, Serialize};
 
 use crate::material::ResolvedMaterial;
+
+/// Per-node animated value overrides for a single render frame.
+///
+/// These are computed from active [`motion_core::animation::AnimationTrack`]s
+/// evaluated at the current timestamp and applied on top of the static render
+/// tree.
+#[derive(Debug, Clone, Default)]
+pub struct AnimationFrame {
+    /// Opacity override in `[0, 1]`.  Replaces the node's computed opacity.
+    pub opacity: HashMap<NodeId, f32>,
+    /// Uniform scale override — multiplies both `scale_x` and `scale_y`.
+    pub scale: HashMap<NodeId, f32>,
+    /// Y-axis translation offset in CSS pixels (additive on top of the node's
+    /// own `transform.y`).
+    pub y_offset: HashMap<NodeId, f32>,
+}
 
 /// A fully resolved node ready for rendering.
 ///

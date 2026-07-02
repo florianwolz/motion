@@ -542,4 +542,92 @@ mod tests {
         let mid = track.evaluate_at(50.0).unwrap();
         assert!((mid.as_f64().unwrap() - 50.0).abs() < 0.01);
     }
+
+    // ------------------------------------------------------------------
+    // Preset builder tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn fade_in_tracks_structure() {
+        let id = crate::node::NodeId::new();
+        let tracks = build_enter_tracks(id, "fade_in", 400.0, 0.0);
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].property, "opacity");
+        assert_eq!(tracks[0].keyframes[0].value, serde_json::json!(0.0));
+        assert_eq!(tracks[0].keyframes[1].value, serde_json::json!(1.0));
+        assert!((tracks[0].keyframes[1].time_ms - 400.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn fade_out_tracks_structure() {
+        let id = crate::node::NodeId::new();
+        let tracks = build_exit_tracks(id, "fade_out", 300.0, 0.0);
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].property, "opacity");
+        assert_eq!(tracks[0].keyframes[0].value, serde_json::json!(1.0));
+        assert_eq!(tracks[0].keyframes[1].value, serde_json::json!(0.0));
+        assert!((tracks[0].keyframes[1].time_ms - 300.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn slide_in_has_opacity_and_y_offset() {
+        let id = crate::node::NodeId::new();
+        let tracks = build_enter_tracks(id, "slide_in", 400.0, 0.0);
+        assert_eq!(tracks.len(), 2);
+        let props: Vec<&str> = tracks.iter().map(|t| t.property.as_str()).collect();
+        assert!(props.contains(&"opacity"));
+        assert!(props.contains(&"transform.y_offset"));
+    }
+
+    #[test]
+    fn scale_in_has_opacity_and_scale() {
+        let id = crate::node::NodeId::new();
+        let tracks = build_enter_tracks(id, "scale_in", 400.0, 0.0);
+        assert_eq!(tracks.len(), 2);
+        let props: Vec<&str> = tracks.iter().map(|t| t.property.as_str()).collect();
+        assert!(props.contains(&"opacity"));
+        assert!(props.contains(&"transform.scale_anim"));
+    }
+
+    #[test]
+    fn pop_in_scale_starts_above_one() {
+        let id = crate::node::NodeId::new();
+        let tracks = build_enter_tracks(id, "pop_in", 400.0, 0.0);
+        let scale_track = tracks.iter().find(|t| t.property == "transform.scale_anim").unwrap();
+        let start = scale_track.keyframes[0].value.as_f64().unwrap() as f32;
+        assert!(start > 1.0, "pop_in should overshoot above 1.0, got {start}");
+    }
+
+    #[test]
+    fn build_enter_tracks_offset_shifts_keyframes() {
+        let id = crate::node::NodeId::new();
+        let tracks = build_enter_tracks(id, "fade_in", 400.0, 100.0);
+        let opacity_track = &tracks[0];
+        assert!((opacity_track.keyframes[0].time_ms - 100.0).abs() < 0.1);
+        assert!((opacity_track.keyframes[1].time_ms - 500.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn tracks_total_duration_correct() {
+        let id = crate::node::NodeId::new();
+        let tracks = build_enter_tracks(id, "slide_in", 400.0, 50.0);
+        let total = tracks_total_duration(&tracks);
+        assert!((total - 450.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn unrecognised_enter_preset_defaults_to_fade() {
+        let id = crate::node::NodeId::new();
+        let tracks = build_enter_tracks(id, "unknown_preset", 200.0, 0.0);
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].property, "opacity");
+    }
+
+    #[test]
+    fn unrecognised_exit_preset_defaults_to_fade() {
+        let id = crate::node::NodeId::new();
+        let tracks = build_exit_tracks(id, "unknown_preset", 200.0, 0.0);
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].property, "opacity");
+    }
 }

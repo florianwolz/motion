@@ -6,4 +6,4 @@ pub mod passes;
 pub mod render_tree;
 
 pub use builder::RenderTreeBuilder;
-pub use render_tree::{RenderNode, RenderTree};
+pub use render_tree::{AnimationFrame, RenderNode, RenderTree};
