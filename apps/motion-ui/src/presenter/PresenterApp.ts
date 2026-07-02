@@ -16,6 +16,7 @@ import { Canvas2DRenderer } from "../lib/renderer.js";
 let engine: EngineHandle | null = null;
 let renderer: Canvas2DRenderer | null = null;
 let isBlackScreen = false;
+const DOCUMENT_SCHEMA_VERSION = "0.1.0";
 
 /** BroadcastChannel for syncing presenter state with a second window/tab. */
 let presenterChannel: BroadcastChannel | null = null;
@@ -61,7 +62,7 @@ async function loadDocumentForPresenter(): Promise<void> {
 
   // Check for a stored document from the editor.
   const stored = localStorage.getItem("motion-current-doc");
-  if (stored) {
+  if (stored && isSupportedSavedDocument(stored)) {
     try {
       engine.loadDocument(stored);
       return;
@@ -74,6 +75,29 @@ async function loadDocumentForPresenter(): Promise<void> {
   // In production this would be loaded from a URL parameter or IndexedDB.
   const { buildDemoDocumentJson } = await import("../editor/demo.js");
   engine.loadDocument(buildDemoDocumentJson());
+}
+
+function isSupportedSavedDocument(json: string): boolean {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return false;
+  }
+
+  if (!parsed || typeof parsed !== "object") return false;
+  const asRecord = parsed as Record<string, unknown>;
+  const metadata = asRecord.metadata;
+  if (metadata && typeof metadata === "object") {
+    const schemaVersion = (metadata as Record<string, unknown>).schema_version;
+    if (typeof schemaVersion === "string" && schemaVersion !== DOCUMENT_SCHEMA_VERSION) {
+      return false;
+    }
+  }
+
+  const scenes = asRecord.scenes;
+  const nodes = asRecord.nodes;
+  return Array.isArray(scenes) && scenes.length > 0 && Boolean(nodes && typeof nodes === "object");
 }
 
 // ─── Preflight ────────────────────────────────────────────────────────────────
@@ -264,4 +288,3 @@ function buildPresenterHtml(): string {
     </style>
   `;
 }
-

@@ -21,6 +21,7 @@ const AUTOSAVE_INTERVAL_MS = 1500;
 const LAYER_BASE_INDENT_PX = 8;
 const LAYER_INDENT_PER_LEVEL_PX = 12;
 const LEGACY_UUID_INDEX = 0;
+const DOCUMENT_SCHEMA_VERSION = "0.1.0";
 
 let engine: EngineHandle | null = null;
 let renderer: Canvas2DRenderer | null = null;
@@ -58,9 +59,12 @@ function loadInitialDocument(container: HTMLElement): void {
   if (!engine) return;
 
   const saved = localStorage.getItem(AUTOSAVE_KEY);
-  if (saved) {
+  if (saved && isSupportedSavedDocument(saved)) {
     try {
       engine.loadDocument(saved);
+      if (parseSceneList(engine.listScenes()).length === 0) {
+        throw new Error("saved document has no scenes");
+      }
       lastSavedSnapshot = saved;
       updateAutosaveStatus(container, "Restored autosave");
       return;
@@ -72,7 +76,9 @@ function loadInitialDocument(container: HTMLElement): void {
   const demo = buildDemoDocumentJson();
   engine.loadDocument(demo);
   lastSavedSnapshot = demo;
+  localStorage.setItem(AUTOSAVE_KEY, demo);
   updateAutosaveStatus(container, "Loaded demo document");
+  setToolbarMessage(container, "Loaded fresh demo document");
 }
 
 function startRenderLoop(container: HTMLElement): void {
@@ -112,6 +118,16 @@ function wireToolbar(container: HTMLElement): void {
   });
 
   container.querySelector("#btn-preflight")?.addEventListener("click", () => showPreflight(container));
+  container.querySelector("#btn-reset")?.addEventListener("click", () => {
+    if (!engine) return;
+    const demo = buildDemoDocumentJson();
+    engine.loadDocument(demo);
+    localStorage.setItem(AUTOSAVE_KEY, demo);
+    lastSavedSnapshot = demo;
+    refreshEditorState(container);
+    updateAutosaveStatus(container, "Reset to demo");
+    setToolbarMessage(container, "Document reset to demo");
+  });
   container.querySelector("#btn-present")?.addEventListener("click", () => {
     saveDocument(container, "Saved for presentation");
     window.open("/present", "_blank");
@@ -347,7 +363,12 @@ function refreshLayers(container: HTMLElement): void {
   layerList.querySelectorAll<HTMLElement>(".layer-item").forEach((item) => {
     item.addEventListener("click", () => {
       const id = item.dataset.id;
-      if (!id || !engine?.selectNode(id)) return;
+      if (!id) return;
+      if (!engine?.selectNode(id)) {
+        setToolbarMessage(container, `Unable to select layer ${item.textContent?.trim() ?? id}`);
+        return;
+      }
+      setToolbarMessage(container, `Selected layer ${item.textContent?.trim() ?? "node"}`);
       refreshEditorState(container);
     });
   });
@@ -553,6 +574,31 @@ function parseUuid(value: unknown): string | null {
   return typeof known === "string" ? known : null;
 }
 
+function isSupportedSavedDocument(json: string): boolean {
+  const parsed = safeParseJson<Record<string, unknown>>(json);
+  if (!parsed) return false;
+
+  const metadata = parsed.metadata as Record<string, unknown> | undefined;
+  if (metadata && typeof metadata.schema_version === "string" && metadata.schema_version !== DOCUMENT_SCHEMA_VERSION) {
+    return false;
+  }
+
+  const scenes = parsed.scenes;
+  const nodes = parsed.nodes;
+  if (!Array.isArray(scenes) || scenes.length === 0 || !nodes || typeof nodes !== "object") {
+    return false;
+  }
+
+  const nodeMap = buildNodeMap(nodes as Record<string, unknown>);
+  if (nodeMap.size === 0) return false;
+
+  return scenes.every((rawScene) => {
+    if (!rawScene || typeof rawScene !== "object") return false;
+    const root = parseUuid((rawScene as { root?: unknown }).root);
+    return typeof root === "string" && nodeMap.has(root);
+  });
+}
+
 function buildAddStepCommand(
   sceneId: string,
   targetId: string,
@@ -603,6 +649,7 @@ function buildShellHtml(): string {
           <button id="btn-step-reveal" title="Create reveal step from selection">+ Reveal step</button>
           <button id="btn-step-hide" title="Create hide step from selection">+ Hide step</button>
           <button id="btn-preflight" title="Run preflight checks">🔍 Preflight</button>
+          <button id="btn-reset" title="Reset to a fresh demo document">⟲ Reset demo</button>
           <button id="btn-brand" title="Load token JSON">🎨 Load brand</button>
           <button id="btn-present" title="Open presentation mode">▶ Present</button>
         </div>
