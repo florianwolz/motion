@@ -133,9 +133,7 @@ function wireToolbar(container: HTMLElement): void {
   container.querySelector("#btn-step-reveal")?.addEventListener("click", () => addStepFromSelection(container, "reveal"));
   container.querySelector("#btn-step-hide")?.addEventListener("click", () => addStepFromSelection(container, "hide"));
   container.querySelector("#btn-step-focus")?.addEventListener("click", () => addStepFromSelection(container, "focus"));
-  container.querySelector("#btn-step-dim")?.addEventListener("click", () => addStepFromSelection(container, "dim_others"));
   container.querySelector("#btn-step-camera")?.addEventListener("click", () => addStepFromSelection(container, "camera_focus"));
-  container.querySelector("#btn-step-stagger")?.addEventListener("click", () => addStepFromSelection(container, "staggered_reveal"));
   container.querySelector("#btn-share")?.addEventListener("click", () => {
     setToolbarMessage(container, "Share panel ready · Invite link copied");
   });
@@ -744,9 +742,7 @@ function buildShellHtml(): string {
             <button id="btn-step-reveal" title="Create reveal step from selection">Reveal</button>
             <button id="btn-step-hide" title="Create hide step from selection">Hide</button>
             <button id="btn-step-focus" title="Create focus step from selection">Focus</button>
-            <button id="btn-step-dim" title="Create dim-others step from selection">Dim Others</button>
             <button id="btn-step-camera" title="Create camera focus step from selection">Camera Focus</button>
-            <button id="btn-step-stagger" title="Create staggered reveal from selected node children">Staggered Reveal</button>
             <button id="btn-preflight" title="Run preflight checks">Preflight</button>
             <button id="btn-brand" title="Load token JSON">Brand</button>
             <button id="btn-reset" title="Reset to a fresh demo document">Reset</button>

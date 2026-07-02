@@ -85,6 +85,8 @@ export function buildDemoDocumentJson(): string {
     rootId, "Root", null, 0, 0, 1920, 1080, "color.background",
     [rectId, titleId, subtitleId],
   );
+  doc.nodes[subtitleId].visible = false;
+  doc.nodes[subtitleId].animation.enter_preset = "slide_in";
 
   return JSON.stringify(doc);
 }
