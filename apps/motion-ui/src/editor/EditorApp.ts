@@ -25,6 +25,8 @@ const LEGACY_UUID_INDEX = 0;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2;
 const ZOOM_STEP = 0.1;
+const DEFAULT_STAGGER_MS = 60;
+const DEFAULT_CAMERA_FOCUS_ZOOM = 1.25;
 
 let engine: EngineHandle | null = null;
 let renderer: Canvas2DRenderer | null = null;
@@ -451,7 +453,7 @@ function refreshInspector(container: HTMLElement): void {
       if (!engine || !inspector.scene_id) return;
       const property = control.dataset.property;
       if (!property) return;
-      const value = getControlValue(control);
+      const value = getControlValue(control, property);
       const command = {
         type: "set_property",
         scene_id: inspector.scene_id,
@@ -585,12 +587,15 @@ function adjustCanvasZoom(container: HTMLElement, delta: number): void {
   setCanvasZoom(container, currentZoom + delta, "Canvas zoom");
 }
 
-function getControlValue(control: HTMLInputElement | HTMLTextAreaElement): boolean | number | string | null {
+function getControlValue(
+  control: HTMLInputElement | HTMLTextAreaElement,
+  property?: string,
+): boolean | number | string | null {
   if (control instanceof HTMLInputElement && control.type === "checkbox") {
     return control.checked;
   }
   if (control instanceof HTMLInputElement && control.type === "number") {
-    if (control.value.trim() === "") return null;
+    if (control.value.trim() === "" && property === "animation.stagger_delay") return null;
     return Number(control.value);
   }
   const trimmed = control.value.trim();
@@ -664,13 +669,13 @@ function buildAddStepCommand(
       ? {
         type: mode,
         targets: (staggerTargets ?? [targetId]).map((id) => ({ Uuid: id })),
-        stagger_ms: 60,
+        stagger_ms: DEFAULT_STAGGER_MS,
       }
       : mode === "camera_focus"
         ? {
           type: mode,
           target: { Uuid: targetId },
-          zoom: 1.25,
+          zoom: DEFAULT_CAMERA_FOCUS_ZOOM,
         }
         : {
           type: mode,

@@ -17,6 +17,8 @@ use crate::{
     render_tree::{RenderContent, RenderNode, RenderTree, ShapeKind},
 };
 
+const DEFAULT_DIM_OTHERS_FACTOR: f32 = 0.3;
+
 /// Builds a [`RenderTree`] for one scene frame.
 pub struct RenderTreeBuilder<'a> {
     document: &'a Document,
@@ -83,7 +85,9 @@ impl<'a> RenderTreeBuilder<'a> {
             if target == node_id {
                 overlay_state.map(|s| s.dim_factor).unwrap_or(1.0)
             } else {
-                overlay_state.map(|s| s.dim_factor).unwrap_or(0.3)
+                overlay_state
+                    .map(|s| s.dim_factor)
+                    .unwrap_or(DEFAULT_DIM_OTHERS_FACTOR)
             }
         } else {
             overlay_state.map(|s| s.dim_factor).unwrap_or(1.0)
@@ -412,7 +416,8 @@ mod tests {
 
         let first_node = tree.nodes.iter().find(|n| n.id == first_id).unwrap();
         let second_node = tree.nodes.iter().find(|n| n.id == second_id).unwrap();
+        const FLOAT_COMPARISON_TOLERANCE: f32 = 0.01;
         assert_eq!(first_node.opacity, 1.0);
-        assert!(second_node.opacity < 0.31);
+        assert!(second_node.opacity < DEFAULT_DIM_OTHERS_FACTOR + FLOAT_COMPARISON_TOLERANCE);
     }
 }
