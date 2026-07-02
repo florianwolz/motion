@@ -10,6 +10,7 @@
  */
 
 import { initEngine, createEngine, parseRenderTree, parsePreflight, parsePosition } from "../lib/engine.js";
+import { isSupportedSavedDocument } from "../lib/documentState.js";
 import type { EngineHandle } from "../lib/engine.js";
 import { Canvas2DRenderer } from "../lib/renderer.js";
 
@@ -61,7 +62,7 @@ async function loadDocumentForPresenter(): Promise<void> {
 
   // Check for a stored document from the editor.
   const stored = localStorage.getItem("motion-current-doc");
-  if (stored) {
+  if (stored && isSupportedSavedDocument(stored)) {
     try {
       engine.loadDocument(stored);
       return;
@@ -264,4 +265,3 @@ function buildPresenterHtml(): string {
     </style>
   `;
 }
-

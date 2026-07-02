@@ -12,6 +12,7 @@ import {
   parseSceneList,
   parseSelection,
 } from "../lib/engine.js";
+import { isSupportedSavedDocument } from "../lib/documentState.js";
 import type { EngineHandle } from "../lib/engine.js";
 import { Canvas2DRenderer } from "../lib/renderer.js";
 import { buildDemoDocumentJson } from "./demo.js";
@@ -58,9 +59,12 @@ function loadInitialDocument(container: HTMLElement): void {
   if (!engine) return;
 
   const saved = localStorage.getItem(AUTOSAVE_KEY);
-  if (saved) {
+  if (saved && isSupportedSavedDocument(saved)) {
     try {
       engine.loadDocument(saved);
+      if (parseSceneList(engine.listScenes()).length === 0) {
+        throw new Error("saved document has no scenes");
+      }
       lastSavedSnapshot = saved;
       updateAutosaveStatus(container, "Restored autosave");
       return;
@@ -69,10 +73,7 @@ function loadInitialDocument(container: HTMLElement): void {
     }
   }
 
-  const demo = buildDemoDocumentJson();
-  engine.loadDocument(demo);
-  lastSavedSnapshot = demo;
-  updateAutosaveStatus(container, "Loaded demo document");
+  loadDemoDocument(container, "Loaded demo document", "Loaded fresh demo document");
 }
 
 function startRenderLoop(container: HTMLElement): void {
@@ -112,6 +113,10 @@ function wireToolbar(container: HTMLElement): void {
   });
 
   container.querySelector("#btn-preflight")?.addEventListener("click", () => showPreflight(container));
+  container.querySelector("#btn-reset")?.addEventListener("click", () => {
+    loadDemoDocument(container, "Reset to demo", "Document reset to demo");
+    refreshEditorState(container);
+  });
   container.querySelector("#btn-present")?.addEventListener("click", () => {
     saveDocument(container, "Saved for presentation");
     window.open("/present", "_blank");
@@ -347,7 +352,12 @@ function refreshLayers(container: HTMLElement): void {
   layerList.querySelectorAll<HTMLElement>(".layer-item").forEach((item) => {
     item.addEventListener("click", () => {
       const id = item.dataset.id;
-      if (!id || !engine?.selectNode(id)) return;
+      if (!id) return;
+      if (!engine?.selectNode(id)) {
+        setToolbarMessage(container, `Unable to select layer ${item.textContent?.trim() ?? id}: invalid or outside current scene`);
+        return;
+      }
+      setToolbarMessage(container, `Selected layer ${item.textContent?.trim() ?? "node"}`);
       refreshEditorState(container);
     });
   });
@@ -553,6 +563,16 @@ function parseUuid(value: unknown): string | null {
   return typeof known === "string" ? known : null;
 }
 
+function loadDemoDocument(container: HTMLElement, statusMessage: string, toolbarMessage: string): void {
+  if (!engine) return;
+  const demo = buildDemoDocumentJson();
+  engine.loadDocument(demo);
+  lastSavedSnapshot = demo;
+  localStorage.setItem(AUTOSAVE_KEY, demo);
+  updateAutosaveStatus(container, statusMessage);
+  setToolbarMessage(container, toolbarMessage);
+}
+
 function buildAddStepCommand(
   sceneId: string,
   targetId: string,
@@ -603,6 +623,7 @@ function buildShellHtml(): string {
           <button id="btn-step-reveal" title="Create reveal step from selection">+ Reveal step</button>
           <button id="btn-step-hide" title="Create hide step from selection">+ Hide step</button>
           <button id="btn-preflight" title="Run preflight checks">🔍 Preflight</button>
+          <button id="btn-reset" title="Reset to a fresh demo document">⟲ Reset demo</button>
           <button id="btn-brand" title="Load token JSON">🎨 Load brand</button>
           <button id="btn-present" title="Open presentation mode">▶ Present</button>
         </div>
