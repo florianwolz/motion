@@ -42,28 +42,51 @@ See [docs/03_architecture_plan.md](docs/03_architecture_plan.md) for the full ar
 
 ### Prerequisites
 
-- [Rust](https://rustup.rs/) (stable, with `wasm32-unknown-unknown` target)
+- [Rust](https://rustup.rs/) stable
+- Rust target: `rustup target add wasm32-unknown-unknown`
 - [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/)
 - [Node.js](https://nodejs.org/) ≥ 20
 
-### Build the Rust workspace
+### Local setup
+
+Run the following from `/home/runner/work/motion/motion`:
+
+1. Build the Rust workspace:
+
+   ```sh
+   cargo build --workspace --locked
+   ```
+
+2. Build the real WASM package consumed by the UI:
+
+   ```sh
+   wasm-pack build crates/motion-wasm --target web
+   ```
+
+3. Install UI dependencies:
+
+   ```sh
+   cd apps/motion-ui
+   npm ci
+   ```
+
+4. Start the editor dev server:
+
+   ```sh
+   npm run dev
+   ```
+
+If you change Rust/WASM code, rerun `wasm-pack build crates/motion-wasm --target web` before refreshing the UI so `crates/motion-wasm/pkg/` stays in sync with the app.
+
+### Local validation
+
+Use the same commands as CI before pushing changes:
 
 ```sh
-cargo build
-```
-
-### Build the WASM package
-
-```sh
+cargo build --workspace --locked
+cargo test --workspace --locked
 wasm-pack build crates/motion-wasm --target web
-```
-
-### Run the UI dev server
-
-```sh
-cd apps/motion-ui
-npm install
-npm run dev
+cd apps/motion-ui && npm run typecheck && npm run build
 ```
 
 ### CLI

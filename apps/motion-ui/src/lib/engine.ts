@@ -6,7 +6,7 @@
  * manages the WASM lifecycle.
  */
 
-import type { PreflightReport, Scene } from "./types.js";
+import type { InspectorData, PreflightReport, SelectionItem } from "./types.js";
 import type { RenderTree } from "./renderer.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -87,5 +87,21 @@ export function parsePosition(json: string): { scene_idx: number; step_idx: numb
     return JSON.parse(json);
   } catch {
     return { scene_idx: 0, step_idx: null };
+  }
+}
+
+export function parseSelection(json: string): SelectionItem[] {
+  try {
+    return JSON.parse(json) as SelectionItem[];
+  } catch {
+    return [];
+  }
+}
+
+export function parseInspector(json: string): InspectorData {
+  try {
+    return JSON.parse(json) as InspectorData;
+  } catch {
+    return { scene_id: null, selected: null };
   }
 }
