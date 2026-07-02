@@ -12,6 +12,7 @@ import {
   parseSceneList,
   parseSelection,
 } from "../lib/engine.js";
+import { isSupportedSavedDocument } from "../lib/documentState.js";
 import type { EngineHandle } from "../lib/engine.js";
 import { Canvas2DRenderer } from "../lib/renderer.js";
 import { buildDemoDocumentJson } from "./demo.js";
@@ -21,7 +22,6 @@ const AUTOSAVE_INTERVAL_MS = 1500;
 const LAYER_BASE_INDENT_PX = 8;
 const LAYER_INDENT_PER_LEVEL_PX = 12;
 const LEGACY_UUID_INDEX = 0;
-const DOCUMENT_SCHEMA_VERSION = "0.1.0";
 
 let engine: EngineHandle | null = null;
 let renderer: Canvas2DRenderer | null = null;
@@ -73,12 +73,7 @@ function loadInitialDocument(container: HTMLElement): void {
     }
   }
 
-  const demo = buildDemoDocumentJson();
-  engine.loadDocument(demo);
-  lastSavedSnapshot = demo;
-  localStorage.setItem(AUTOSAVE_KEY, demo);
-  updateAutosaveStatus(container, "Loaded demo document");
-  setToolbarMessage(container, "Loaded fresh demo document");
+  loadDemoDocument(container, "Loaded demo document", "Loaded fresh demo document");
 }
 
 function startRenderLoop(container: HTMLElement): void {
@@ -119,14 +114,8 @@ function wireToolbar(container: HTMLElement): void {
 
   container.querySelector("#btn-preflight")?.addEventListener("click", () => showPreflight(container));
   container.querySelector("#btn-reset")?.addEventListener("click", () => {
-    if (!engine) return;
-    const demo = buildDemoDocumentJson();
-    engine.loadDocument(demo);
-    localStorage.setItem(AUTOSAVE_KEY, demo);
-    lastSavedSnapshot = demo;
+    loadDemoDocument(container, "Reset to demo", "Document reset to demo");
     refreshEditorState(container);
-    updateAutosaveStatus(container, "Reset to demo");
-    setToolbarMessage(container, "Document reset to demo");
   });
   container.querySelector("#btn-present")?.addEventListener("click", () => {
     saveDocument(container, "Saved for presentation");
@@ -365,7 +354,7 @@ function refreshLayers(container: HTMLElement): void {
       const id = item.dataset.id;
       if (!id) return;
       if (!engine?.selectNode(id)) {
-        setToolbarMessage(container, `Unable to select layer ${item.textContent?.trim() ?? id}`);
+        setToolbarMessage(container, `Unable to select layer ${item.textContent?.trim() ?? id}: invalid or outside current scene`);
         return;
       }
       setToolbarMessage(container, `Selected layer ${item.textContent?.trim() ?? "node"}`);
@@ -574,29 +563,14 @@ function parseUuid(value: unknown): string | null {
   return typeof known === "string" ? known : null;
 }
 
-function isSupportedSavedDocument(json: string): boolean {
-  const parsed = safeParseJson<Record<string, unknown>>(json);
-  if (!parsed) return false;
-
-  const metadata = parsed.metadata as Record<string, unknown> | undefined;
-  if (metadata && typeof metadata.schema_version === "string" && metadata.schema_version !== DOCUMENT_SCHEMA_VERSION) {
-    return false;
-  }
-
-  const scenes = parsed.scenes;
-  const nodes = parsed.nodes;
-  if (!Array.isArray(scenes) || scenes.length === 0 || !nodes || typeof nodes !== "object") {
-    return false;
-  }
-
-  const nodeMap = buildNodeMap(nodes as Record<string, unknown>);
-  if (nodeMap.size === 0) return false;
-
-  return scenes.every((rawScene) => {
-    if (!rawScene || typeof rawScene !== "object") return false;
-    const root = parseUuid((rawScene as { root?: unknown }).root);
-    return typeof root === "string" && nodeMap.has(root);
-  });
+function loadDemoDocument(container: HTMLElement, statusMessage: string, toolbarMessage: string): void {
+  if (!engine) return;
+  const demo = buildDemoDocumentJson();
+  engine.loadDocument(demo);
+  lastSavedSnapshot = demo;
+  localStorage.setItem(AUTOSAVE_KEY, demo);
+  updateAutosaveStatus(container, statusMessage);
+  setToolbarMessage(container, toolbarMessage);
 }
 
 function buildAddStepCommand(
