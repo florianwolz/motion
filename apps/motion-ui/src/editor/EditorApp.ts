@@ -22,6 +22,8 @@ const AUTOSAVE_INTERVAL_MS = 1500;
 let engine: EngineHandle | null = null;
 let renderer: Canvas2DRenderer | null = null;
 let autosaveTimer: number | null = null;
+let timelinePreviewTimer: number | null = null;
+let beforeUnloadRegistered = false;
 let lastSavedSnapshot = "";
 
 export async function mountEditor(container: HTMLElement): Promise<void> {
@@ -303,12 +305,16 @@ function refreshTimeline(container: HTMLElement): void {
 
   slider.oninput = () => {
     if (!engine) return;
-    engine.restartScene();
-    const stepsToApply = Number(slider.value);
-    for (let index = 0; index < stepsToApply; index += 1) {
-      engine.nextStep();
-    }
-    refreshTimeline(container);
+    if (timelinePreviewTimer !== null) window.clearTimeout(timelinePreviewTimer);
+    timelinePreviewTimer = window.setTimeout(() => {
+      if (!engine) return;
+      engine.restartScene();
+      const stepsToApply = Number(slider.value);
+      for (let index = 0; index < stepsToApply; index += 1) {
+        engine.nextStep();
+      }
+      refreshTimeline(container);
+    }, 16);
   };
 }
 
@@ -338,7 +344,10 @@ function renderSelectionOverlay(container: HTMLElement): void {
 function startAutosave(container: HTMLElement): void {
   if (autosaveTimer !== null) window.clearInterval(autosaveTimer);
   autosaveTimer = window.setInterval(() => saveDocument(container, "Autosaved"), AUTOSAVE_INTERVAL_MS);
-  window.addEventListener("beforeunload", () => saveDocument(container, "Saved before unload"));
+  if (!beforeUnloadRegistered) {
+    window.addEventListener("beforeunload", () => saveDocument(container, "Saved before unload"));
+    beforeUnloadRegistered = true;
+  }
 }
 
 function saveDocument(container: HTMLElement, message: string): void {

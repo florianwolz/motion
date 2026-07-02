@@ -107,12 +107,16 @@ impl MotionEngine {
         }
 
         let source = payload.get("tokens").unwrap_or(&payload);
+        let has_explicit_tokens_key = payload.get("tokens").is_some();
         let mut collected = Vec::new();
         collect_tokens(source, &mut collected);
         if collected.is_empty() {
-            return Err(JsValue::from_str(
-                "Brand payload did not contain any dotted token entries",
-            ));
+            let message = if has_explicit_tokens_key {
+                "Brand payload contains a `tokens` key but no dotted token entries"
+            } else {
+                "Brand payload did not contain a `tokens` object or top-level sections with dotted token entries"
+            };
+            return Err(JsValue::from_str(message));
         }
         for (path, value) in collected {
             self.inner.document_mut().tokens.tokens.insert(path, value);
@@ -553,19 +557,15 @@ impl MotionEngine {
 
         lineage.reverse();
         let mut absolute = Transform::default();
+        absolute.x = 0.0;
+        absolute.y = 0.0;
+        absolute.width = 0.0;
+        absolute.height = 0.0;
         absolute.scale_x = 1.0;
         absolute.scale_y = 1.0;
 
-        for (idx, transform) in lineage.iter().enumerate() {
-            absolute.x += transform.x;
-            absolute.y += transform.y;
-            absolute.rotation += transform.rotation;
-            absolute.scale_x *= transform.scale_x;
-            absolute.scale_y *= transform.scale_y;
-            if idx == lineage.len() - 1 {
-                absolute.width = transform.width * absolute.scale_x;
-                absolute.height = transform.height * absolute.scale_y;
-            }
+        for transform in lineage.iter() {
+            absolute = compose_transform(&absolute, transform);
         }
 
         absolute
@@ -586,6 +586,18 @@ fn point_in_transform(x: f32, y: f32, transform: &Transform) -> bool {
         && y >= transform.y
         && x <= transform.x + transform.width
         && y <= transform.y + transform.height
+}
+
+fn compose_transform(parent: &Transform, current: &Transform) -> Transform {
+    Transform {
+        x: parent.x + (current.x * parent.scale_x),
+        y: parent.y + (current.y * parent.scale_y),
+        width: current.width * parent.scale_x * current.scale_x,
+        height: current.height * parent.scale_y * current.scale_y,
+        rotation: parent.rotation + current.rotation,
+        scale_x: parent.scale_x * current.scale_x,
+        scale_y: parent.scale_y * current.scale_y,
+    }
 }
 
 fn collect_tokens(value: &Value, out: &mut Vec<(String, TokenValue)>) {

@@ -10,8 +10,8 @@ use motion_core::{
 };
 
 const PDF_CATALOG_OBJECT_ID: u32 = 1;
-const PDF_PAGES_OBJECT_ID: u32 = 2;
-const PDF_FIRST_PAGE_OBJECT_ID: u32 = 3;
+const PDF_PAGES_OBJECT_ID: u32 = PDF_CATALOG_OBJECT_ID + 1;
+const PDF_FIRST_PAGE_OBJECT_ID: u32 = PDF_PAGES_OBJECT_ID + 1;
 const PDF_OBJECTS_PER_SCENE: u32 = 2;
 
 #[derive(Parser)]
@@ -302,10 +302,10 @@ fn collect_text_lines(document: &Document, node_id: NodeId, lines: &mut Vec<Stri
 
 fn compose_transform(parent: &Transform, current: &Transform) -> Transform {
     Transform {
-        x: parent.x + current.x,
-        y: parent.y + current.y,
-        width: current.width * parent.scale_x.max(1.0),
-        height: current.height * parent.scale_y.max(1.0),
+        x: parent.x + (current.x * parent.scale_x),
+        y: parent.y + (current.y * parent.scale_y),
+        width: current.width * parent.scale_x * current.scale_x,
+        height: current.height * parent.scale_y * current.scale_y,
         rotation: parent.rotation + current.rotation,
         scale_x: parent.scale_x * current.scale_x,
         scale_y: parent.scale_y * current.scale_y,
