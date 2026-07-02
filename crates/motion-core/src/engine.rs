@@ -115,6 +115,11 @@ impl DocumentEngine {
         &self.document
     }
 
+    /// Mutably access the current document.
+    pub fn document_mut(&mut self) -> &mut Document {
+        &mut self.document
+    }
+
     /// Access the current presentation overlay.
     pub fn overlay(&self) -> &PresentationOverlay {
         &self.overlay
@@ -669,6 +674,16 @@ fn apply_property(
                         as u32,
                 );
             }
+        }
+        "animation.enter_preset" => {
+            node.animation.enter_preset = value
+                .as_str()
+                .map(|raw| crate::node::StyleValue::Literal(raw.to_string()));
+        }
+        "animation.exit_preset" => {
+            node.animation.exit_preset = value
+                .as_str()
+                .map(|raw| crate::node::StyleValue::Literal(raw.to_string()));
         }
         _ => {
             return Err(EngineError::InvalidPropertyPath(path.to_string()));

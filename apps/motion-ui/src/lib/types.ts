@@ -100,3 +100,43 @@ export interface PreflightReport {
   checks: PreflightCheck[];
   suggestions: Array<{ check_id: string; description: string; auto_fixable: boolean }>;
 }
+
+export interface SelectionItem {
+  id: string;
+  name: string;
+  node_type: string;
+}
+
+export interface InspectorTransform {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  scale_x: number;
+  scale_y: number;
+}
+
+export interface InspectorSelection {
+  id: string;
+  name: string;
+  node_type: string;
+  visible: boolean;
+  locked: boolean;
+  opacity: number;
+  transform: InspectorTransform;
+  absolute_transform: InspectorTransform;
+  animation: {
+    enter_preset: string | null;
+    exit_preset: string | null;
+  };
+  text?: {
+    content: string;
+    font_size: number | null;
+  } | null;
+}
+
+export interface InspectorData {
+  scene_id: string | null;
+  selected: InspectorSelection | null;
+}
