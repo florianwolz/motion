@@ -3,7 +3,10 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use std::collections::HashMap;
+
 use crate::{
+    node::{Node, NodeId},
     scene::{Scene, SceneId},
     tokens::TokenStore,
 };
@@ -125,6 +128,8 @@ pub struct Document {
     pub assets: AssetStore,
     pub scenes: Vec<Scene>,
     pub export_settings: ExportSettings,
+    /// All nodes in the scene graph, keyed by their ID.
+    pub nodes: HashMap<NodeId, Node>,
 }
 
 impl Document {
@@ -139,6 +144,7 @@ impl Document {
             assets: AssetStore::default(),
             scenes: Vec::new(),
             export_settings: ExportSettings::default(),
+            nodes: HashMap::new(),
         }
     }
 
@@ -150,5 +156,56 @@ impl Document {
     /// Look up a scene mutably by its ID.
     pub fn scene_mut(&mut self, id: SceneId) -> Option<&mut Scene> {
         self.scenes.iter_mut().find(|s| s.id == id)
+    }
+
+    /// Look up a node by its ID.
+    pub fn node(&self, id: NodeId) -> Option<&Node> {
+        self.nodes.get(&id)
+    }
+
+    /// Look up a node mutably by its ID.
+    pub fn node_mut(&mut self, id: NodeId) -> Option<&mut Node> {
+        self.nodes.get_mut(&id)
+    }
+
+    /// Insert a node into the scene graph.
+    pub fn insert_node(&mut self, node: Node) {
+        self.nodes.insert(node.id, node);
+    }
+
+    /// Remove a node and detach it from its parent's child list.
+    /// Returns the removed node if it existed.
+    pub fn remove_node(&mut self, id: NodeId) -> Option<Node> {
+        let node = self.nodes.remove(&id)?;
+        if let Some(parent_id) = node.parent {
+            if let Some(parent) = self.nodes.get_mut(&parent_id) {
+                parent.children.retain(|c| *c != id);
+            }
+        }
+        Some(node)
+    }
+
+    /// Return the children IDs of a given node in order.
+    pub fn children_of(&self, id: NodeId) -> Vec<NodeId> {
+        self.nodes
+            .get(&id)
+            .map(|n| n.children.clone())
+            .unwrap_or_default()
+    }
+
+    /// Walk the subtree rooted at `root` in depth-first pre-order and
+    /// collect all node IDs (including the root itself).
+    pub fn subtree_ids(&self, root: NodeId) -> Vec<NodeId> {
+        let mut result = Vec::new();
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            result.push(id);
+            if let Some(node) = self.nodes.get(&id) {
+                for &child in node.children.iter().rev() {
+                    stack.push(child);
+                }
+            }
+        }
+        result
     }
 }

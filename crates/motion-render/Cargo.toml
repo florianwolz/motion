@@ -9,4 +9,5 @@ repository.workspace = true
 [dependencies]
 motion-core = { path = "../motion-core" }
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true

@@ -213,6 +213,7 @@ version = "0.1.0"
 dependencies = [
  "motion-core",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 
@@ -226,6 +227,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "uuid",
  "wasm-bindgen",
  "web-sys",
 ]
