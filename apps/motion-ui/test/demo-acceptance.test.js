@@ -18,7 +18,7 @@ test("demo deck covers multiple acceptance-style scenes", () => {
     "Executive KPI Lift",
     "Architecture Focus",
   ]);
-  assert.ok(document.scenes.every((scene) => scene.steps.length >= 2), "each scene should have motion steps");
+  assert.ok(document.scenes.every((scene) => scene.steps.length >= 2), "each scene should have at least 2 motion steps");
 });
 
 test("demo deck encodes diverse semantic motion commands", () => {
