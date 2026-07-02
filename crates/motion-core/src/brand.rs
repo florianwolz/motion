@@ -205,7 +205,7 @@ fn collect_tokens_inner(value: &Value, out: &mut Vec<(String, TokenValue)>) {
 
 fn json_to_token_value(value: &Value) -> TokenValue {
     match value {
-        Value::String(token_string) => parse_token_string(token_string)
+        Value::String(string_value) => parse_token_string(string_value)
             .map(|path| TokenValue::Alias(TokenRef::new(path)))
             .unwrap_or_else(|| TokenValue::Scalar(value.clone())),
         Value::Object(map) => TokenValue::Composite(
