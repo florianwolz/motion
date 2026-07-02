@@ -294,7 +294,7 @@ impl MotionEngine {
     pub fn next_step(&mut self) -> bool {
         let changed = self.inner.next_step();
         if changed {
-            self.start_step_animation(true);
+            self.start_step_animation();
         }
         changed
     }
@@ -560,13 +560,9 @@ impl MotionEngine {
 
     /// Build animation tracks for the current step and store them.
     /// Called after a successful forward step advance.
-    fn start_step_animation(&mut self, forward: bool) {
+    fn start_step_animation(&mut self) {
         self.active_tracks.clear();
         self.animation_start_ms = None;
-
-        if !forward {
-            return;
-        }
 
         let Some(scene) = self.inner.current_scene() else { return };
         let Some(step_idx) = self.inner.position().1 else { return };

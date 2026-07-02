@@ -92,32 +92,11 @@ impl<'a> RenderTreeBuilder<'a> {
         }
 
         // Opacity: animation override → node base opacity × dim factor.
+        let dim = self.resolve_dim_factor(node_id);
         let opacity = if let Some(&anim_opacity) = self.animation.opacity.get(&node_id) {
-            let dim = if let Some(target) = self.overlay.dim_others_target {
-                if target == node_id {
-                    overlay_state.map(|s| s.dim_factor).unwrap_or(1.0)
-                } else {
-                    overlay_state
-                        .map(|s| s.dim_factor)
-                        .unwrap_or(DEFAULT_DIM_OTHERS_FACTOR)
-                }
-            } else {
-                overlay_state.map(|s| s.dim_factor).unwrap_or(1.0)
-            };
             (anim_opacity * dim).clamp(0.0, 1.0)
         } else {
             let base_opacity = self.tokens.resolve_f32(&node.style.opacity).unwrap_or(1.0);
-            let dim = if let Some(target) = self.overlay.dim_others_target {
-                if target == node_id {
-                    overlay_state.map(|s| s.dim_factor).unwrap_or(1.0)
-                } else {
-                    overlay_state
-                        .map(|s| s.dim_factor)
-                        .unwrap_or(DEFAULT_DIM_OTHERS_FACTOR)
-                }
-            } else {
-                overlay_state.map(|s| s.dim_factor).unwrap_or(1.0)
-            };
             (base_opacity * dim).clamp(0.0, 1.0)
         };
 
@@ -159,6 +138,34 @@ impl<'a> RenderTreeBuilder<'a> {
         // Recurse into children.
         for &child_id in &node.children {
             self.visit(child_id, tree);
+        }
+    }
+
+    /// Resolve the effective dim multiplier for a node.
+    ///
+    /// When `dim_others_target` is set the focal node stays at full brightness
+    /// while every other node is dimmed to `DEFAULT_DIM_OTHERS_FACTOR`.
+    fn resolve_dim_factor(&self, node_id: NodeId) -> f32 {
+        if let Some(target) = self.overlay.dim_others_target {
+            if target == node_id {
+                self.overlay
+                    .node_states
+                    .get(&node_id)
+                    .map(|s| s.dim_factor)
+                    .unwrap_or(1.0)
+            } else {
+                self.overlay
+                    .node_states
+                    .get(&node_id)
+                    .map(|s| s.dim_factor)
+                    .unwrap_or(DEFAULT_DIM_OTHERS_FACTOR)
+            }
+        } else {
+            self.overlay
+                .node_states
+                .get(&node_id)
+                .map(|s| s.dim_factor)
+                .unwrap_or(1.0)
         }
     }
 
