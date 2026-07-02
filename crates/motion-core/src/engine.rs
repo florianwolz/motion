@@ -53,11 +53,7 @@ pub struct NodePresentationState {
 impl NodePresentationState {
     #[allow(dead_code)]
     fn normal() -> Self {
-        Self {
-            visible: None,
-            dim_factor: 1.0,
-            focused: false,
-        }
+        Self { visible: None, dim_factor: 1.0, focused: false }
     }
 }
 
@@ -480,13 +476,7 @@ impl DocumentEngine {
                     .document
                     .scenes
                     .get(self.current_scene_idx)
-                    .map(|s| {
-                        if s.steps.is_empty() {
-                            None
-                        } else {
-                            Some(s.steps.len() - 1)
-                        }
-                    })
+                    .map(|s| if s.steps.is_empty() { None } else { Some(s.steps.len() - 1) })
                     .unwrap_or(None);
                 self.current_step_idx = last_step;
                 self.rebuild_overlay();
@@ -583,28 +573,24 @@ fn apply_presentation_command(overlay: &mut PresentationOverlay, cmd: &Presentat
             // DimOthers is active.
             let entry = overlay.node_states.entry(*target).or_default();
             entry.dim_factor = 1.0; // target stays bright
-                                    // We track DimOthers semantics via a "focused" flag on the target;
-                                    // the renderer applies `dim_factor` from the overlay.
-                                    // For other nodes that haven't been explicitly set, the renderer
-                                    // queries the overlay and finds dim_factor defaults to 1.0, so we
-                                    // need a different approach.  We store the dim on existing entries
-                                    // and let the renderer apply `dim_factor=0.3` to any node that
-                                    // does NOT have an explicit `dim_factor=1.0` after a DimOthers step.
-                                    //
-                                    // Mark the overlay with the "has active focus" info by tagging the
-                                    // target node state — the renderer checks `focused && dim_factor==1`.
-                                    // For now, set dim on all others that already have an entry.
+            // We track DimOthers semantics via a "focused" flag on the target;
+            // the renderer applies `dim_factor` from the overlay.
+            // For other nodes that haven't been explicitly set, the renderer
+            // queries the overlay and finds dim_factor defaults to 1.0, so we
+            // need a different approach.  We store the dim on existing entries
+            // and let the renderer apply `dim_factor=0.3` to any node that
+            // does NOT have an explicit `dim_factor=1.0` after a DimOthers step.
+            //
+            // Mark the overlay with the "has active focus" info by tagging the
+            // target node state — the renderer checks `focused && dim_factor==1`.
+            // For now, set dim on all others that already have an entry.
             for (nid, state) in overlay.node_states.iter_mut() {
                 if *nid != *target {
                     state.dim_factor = 0.3;
                 }
             }
         }
-        PresentationCommand::SetProperty {
-            node,
-            property: _,
-            value: _,
-        } => {
+        PresentationCommand::SetProperty { node, property: _, value: _ } => {
             // SetProperty is applied directly to the document via a Command,
             // not via a step command.  Mark the node as "touched" at least.
             overlay.node_states.entry(*node).or_default();
@@ -728,13 +714,7 @@ mod tests {
 
     fn make_doc_with_scene() -> (Document, SceneId) {
         let mut doc = Document::new("Test");
-        let root = Node::new(
-            "Root",
-            NodeKind::Frame(FrameNode {
-                clip_content: false,
-                corner_radius: None,
-            }),
-        );
+        let root = Node::new("Root", NodeKind::Frame(FrameNode { clip_content: false, corner_radius: None }));
         let root_id = root.id;
         doc.insert_node(root);
         let scene = Scene::new("Scene 1", root_id);
@@ -771,10 +751,7 @@ mod tests {
             .id;
 
         engine
-            .apply_command(Command::DeleteNode(DeleteNodeCommand {
-                scene_id,
-                node_id: text_id,
-            }))
+            .apply_command(Command::DeleteNode(DeleteNodeCommand { scene_id, node_id: text_id }))
             .unwrap();
 
         assert_eq!(engine.document().nodes.len(), 1); // only root

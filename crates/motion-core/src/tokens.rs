@@ -182,10 +182,9 @@ mod tests {
     #[test]
     fn resolve_scalar_f32() {
         let mut store = TokenStore::default();
-        store.tokens.insert(
-            "spacing.md".into(),
-            TokenValue::Scalar(serde_json::json!(16.0)),
-        );
+        store
+            .tokens
+            .insert("spacing.md".into(), TokenValue::Scalar(serde_json::json!(16.0)));
         let val = StyleValue::<f32>::token("spacing.md");
         assert_eq!(store.resolve_f32(&val), Some(16.0));
     }
@@ -193,9 +192,10 @@ mod tests {
     #[test]
     fn resolve_alias_chain() {
         let mut store = TokenStore::default();
-        store
-            .tokens
-            .insert("alias".into(), TokenValue::Alias(TokenRef::new("target")));
+        store.tokens.insert(
+            "alias".into(),
+            TokenValue::Alias(TokenRef::new("target")),
+        );
         store
             .tokens
             .insert("target".into(), TokenValue::Scalar(serde_json::json!(42.0)));

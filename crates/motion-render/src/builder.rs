@@ -13,9 +13,7 @@ use motion_core::{
 };
 
 use crate::{
-    material::{
-        CardMaterial, GlassMaterial, GlowMaterial, GradientSpec, GradientStop, ResolvedMaterial,
-    },
+    material::{CardMaterial, GlassMaterial, GlowMaterial, GradientSpec, GradientStop, ResolvedMaterial},
     render_tree::{RenderContent, RenderNode, RenderTree, ShapeKind},
 };
 
@@ -29,23 +27,13 @@ pub struct RenderTreeBuilder<'a> {
 impl<'a> RenderTreeBuilder<'a> {
     /// Create a new builder.
     pub fn new(document: &'a Document, overlay: &'a PresentationOverlay) -> Self {
-        Self {
-            document,
-            overlay,
-            tokens: &document.tokens,
-        }
+        Self { document, overlay, tokens: &document.tokens }
     }
 
     /// Build a render tree for the given scene.
     ///
     /// Returns `None` if the scene or its root node cannot be found.
-    pub fn build(
-        &self,
-        scene_id: SceneId,
-        viewport_width: f32,
-        viewport_height: f32,
-        dpr: f32,
-    ) -> Option<RenderTree> {
+    pub fn build(&self, scene_id: SceneId, viewport_width: f32, viewport_height: f32, dpr: f32) -> Option<RenderTree> {
         let scene = self.document.scene(scene_id)?;
         let mut tree = RenderTree {
             nodes: Vec::new(),
@@ -94,7 +82,9 @@ impl<'a> RenderTreeBuilder<'a> {
         let dim = overlay_state.map(|s| s.dim_factor).unwrap_or(1.0);
         let opacity = (base_opacity * dim).clamp(0.0, 1.0);
 
-        let blur_radius = self.tokens.resolve_f32_or(&node.style.blur_radius, 0.0);
+        let blur_radius = self
+            .tokens
+            .resolve_f32_or(&node.style.blur_radius, 0.0);
 
         let material = self.resolve_material(node);
 
@@ -136,61 +126,35 @@ impl<'a> RenderTreeBuilder<'a> {
 
         // Default: solid fill from node style.
         if let Some(fill_sv) = &node.style.fill {
-            let color = self.tokens.resolve_color(fill_sv).unwrap_or(Color::WHITE);
+            let color = self
+                .tokens
+                .resolve_color(fill_sv)
+                .unwrap_or(Color::WHITE);
             return Some(ResolvedMaterial::Solid { color });
         }
 
         None
     }
 
-    fn resolve_named_material(
-        &self,
-        name: &str,
-        _node: &motion_core::node::Node,
-    ) -> ResolvedMaterial {
+    fn resolve_named_material(&self, name: &str, _node: &motion_core::node::Node) -> ResolvedMaterial {
         match name {
             "glass" => ResolvedMaterial::Glass(GlassMaterial {
-                tint: Color {
-                    r: 1.0,
-                    g: 1.0,
-                    b: 1.0,
-                    a: 0.1,
-                },
+                tint: Color { r: 1.0, g: 1.0, b: 1.0, a: 0.1 },
                 opacity: 0.7,
                 blur_radius: 16.0,
                 saturation: 1.2,
-                edge_highlight: Color {
-                    r: 1.0,
-                    g: 1.0,
-                    b: 1.0,
-                    a: 0.3,
-                },
+                edge_highlight: Color { r: 1.0, g: 1.0, b: 1.0, a: 0.3 },
                 noise_strength: 0.03,
             }),
             "glow" => ResolvedMaterial::Glow(GlowMaterial {
-                color: Color {
-                    r: 0.4,
-                    g: 0.6,
-                    b: 1.0,
-                    a: 1.0,
-                },
+                color: Color { r: 0.4, g: 0.6, b: 1.0, a: 1.0 },
                 radius: 24.0,
                 intensity: 0.8,
             }),
             "card" => ResolvedMaterial::MatteCard(CardMaterial {
-                background: Color {
-                    r: 0.12,
-                    g: 0.12,
-                    b: 0.14,
-                    a: 1.0,
-                },
+                background: Color { r: 0.12, g: 0.12, b: 0.14, a: 1.0 },
                 corner_radius: 12.0,
-                shadow_color: Color {
-                    r: 0.0,
-                    g: 0.0,
-                    b: 0.0,
-                    a: 0.4,
-                },
+                shadow_color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.4 },
                 shadow_blur: 24.0,
                 shadow_offset_y: 8.0,
             }),
@@ -222,7 +186,9 @@ impl<'a> RenderTreeBuilder<'a> {
                     .stroke
                     .as_ref()
                     .and_then(|sv| self.tokens.resolve_color(sv));
-                let stroke_width = self.tokens.resolve_f32_or(&node.style.stroke_width, 0.0);
+                let stroke_width = self
+                    .tokens
+                    .resolve_f32_or(&node.style.stroke_width, 0.0);
 
                 RenderContent::Shape {
                     kind: map_shape_kind(&s.kind),
@@ -232,13 +198,19 @@ impl<'a> RenderTreeBuilder<'a> {
                 }
             }
             NodeKind::Text(t) => {
-                let color = self.tokens.resolve_color(&t.color).unwrap_or(Color::BLACK);
+                let color = self
+                    .tokens
+                    .resolve_color(&t.color)
+                    .unwrap_or(Color::BLACK);
                 let font_family = self
                     .tokens
                     .resolve_string(&t.font_family)
                     .unwrap_or("sans-serif")
                     .to_string();
-                let font_size = self.tokens.resolve_f32(&t.font_size).unwrap_or(16.0);
+                let font_size = self
+                    .tokens
+                    .resolve_f32(&t.font_size)
+                    .unwrap_or(16.0);
                 let line_height = t
                     .line_height
                     .as_ref()
@@ -289,9 +261,7 @@ fn map_shape_kind(kind: &motion_core::node::ShapeKind) -> ShapeKind {
         motion_core::node::ShapeKind::Rectangle => ShapeKind::Rectangle,
         motion_core::node::ShapeKind::Ellipse => ShapeKind::Ellipse,
         motion_core::node::ShapeKind::RoundedRectangle { corner_radius } => {
-            ShapeKind::RoundedRectangle {
-                corner_radius: *corner_radius,
-            }
+            ShapeKind::RoundedRectangle { corner_radius: *corner_radius }
         }
         motion_core::node::ShapeKind::Line => ShapeKind::Line,
     }
@@ -302,20 +272,18 @@ fn map_shape_kind(kind: &motion_core::node::ShapeKind) -> ShapeKind {
 // ------------------------------------------------------------------
 
 /// Build a simple two-stop linear gradient from two hex colors.
-pub fn linear_gradient(angle_deg: f32, from_hex: &str, to_hex: &str) -> Option<GradientSpec> {
+pub fn linear_gradient(
+    angle_deg: f32,
+    from_hex: &str,
+    to_hex: &str,
+) -> Option<GradientSpec> {
     let from = motion_core::tokens::parse_hex_color(from_hex)?;
     let to = motion_core::tokens::parse_hex_color(to_hex)?;
     Some(GradientSpec {
         kind: crate::material::GradientKind::Linear { angle_deg },
         stops: vec![
-            GradientStop {
-                offset: 0.0,
-                color: from,
-            },
-            GradientStop {
-                offset: 1.0,
-                color: to,
-            },
+            GradientStop { offset: 0.0, color: from },
+            GradientStop { offset: 1.0, color: to },
         ],
     })
 }
@@ -326,19 +294,13 @@ mod tests {
     use motion_core::{
         document::Document,
         engine::PresentationOverlay,
-        node::{FrameNode, Node, NodeKind, ShapeKind as CoreShapeKind, ShapeNode, TextNode},
+        node::{FrameNode, Node, NodeKind, ShapeNode, ShapeKind as CoreShapeKind, TextNode},
         scene::Scene,
     };
 
     fn make_doc() -> (Document, SceneId) {
         let mut doc = Document::new("Test");
-        let root = Node::new(
-            "Root",
-            NodeKind::Frame(FrameNode {
-                clip_content: false,
-                corner_radius: None,
-            }),
-        );
+        let root = Node::new("Root", NodeKind::Frame(FrameNode { clip_content: false, corner_radius: None }));
         let root_id = root.id;
         doc.insert_node(root);
         let scene = Scene::new("S1", root_id);
@@ -387,13 +349,7 @@ mod tests {
         let tree = builder.build(sid, 1920.0, 1080.0, 1.0).unwrap();
 
         let render_node = tree.nodes.iter().find(|n| n.id == text_id).unwrap();
-        if let RenderContent::Text {
-            color,
-            font_size,
-            font_family,
-            ..
-        } = &render_node.content
-        {
+        if let RenderContent::Text { color, font_size, font_family, .. } = &render_node.content {
             assert!((color.r - 1.0).abs() < 0.01);
             assert!((font_size - 18.0).abs() < 0.01);
             assert_eq!(font_family, "Inter");
@@ -406,12 +362,7 @@ mod tests {
     fn hidden_node_via_overlay() {
         let (mut doc, sid) = make_doc();
         let root_id = doc.scenes[0].root;
-        let mut shape = Node::new(
-            "Box",
-            NodeKind::Shape(ShapeNode {
-                kind: CoreShapeKind::Rectangle,
-            }),
-        );
+        let mut shape = Node::new("Box", NodeKind::Shape(ShapeNode { kind: CoreShapeKind::Rectangle }));
         shape.parent = Some(root_id);
         let shape_id = shape.id;
         doc.nodes.get_mut(&root_id).unwrap().children.push(shape_id);

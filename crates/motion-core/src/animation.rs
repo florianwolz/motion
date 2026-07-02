@@ -14,32 +14,12 @@ pub struct CubicBezier {
 }
 
 impl CubicBezier {
-    pub const LINEAR: Self = Self {
-        x1: 0.0,
-        y1: 0.0,
-        x2: 1.0,
-        y2: 1.0,
-    };
-    pub const EASE: Self = Self {
-        x1: 0.25,
-        y1: 0.1,
-        x2: 0.25,
-        y2: 1.0,
-    };
+    pub const LINEAR: Self = Self { x1: 0.0, y1: 0.0, x2: 1.0, y2: 1.0 };
+    pub const EASE: Self = Self { x1: 0.25, y1: 0.1, x2: 0.25, y2: 1.0 };
     /// Motion-design "precise" curve from the token spec.
-    pub const PRECISE: Self = Self {
-        x1: 0.2,
-        y1: 0.0,
-        x2: 0.0,
-        y2: 1.0,
-    };
+    pub const PRECISE: Self = Self { x1: 0.2, y1: 0.0, x2: 0.0, y2: 1.0 };
     /// Motion-design "premium" spring-like curve.
-    pub const PREMIUM: Self = Self {
-        x1: 0.16,
-        y1: 1.0,
-        x2: 0.3,
-        y2: 1.0,
-    };
+    pub const PREMIUM: Self = Self { x1: 0.16, y1: 1.0, x2: 0.3, y2: 1.0 };
 
     /// Evaluate the easing curve at input time `t ∈ [0, 1]` and return the
     /// output value `y ∈ [0, 1]`.
@@ -70,9 +50,7 @@ impl CubicBezier {
 
     fn bezier_x_deriv(&self, s: f32) -> f32 {
         let inv = 1.0 - s;
-        3.0 * inv * inv * self.x1
-            + 6.0 * inv * s * (self.x2 - self.x1)
-            + 3.0 * s * s * (1.0 - self.x2)
+        3.0 * inv * inv * self.x1 + 6.0 * inv * s * (self.x2 - self.x1) + 3.0 * s * s * (1.0 - self.x2)
     }
 
     fn solve_t_for_x(&self, x: f32) -> f32 {
@@ -132,7 +110,8 @@ impl SpringParams {
             // Underdamped
             let omega_d = omega0 * (1.0 - zeta * zeta).sqrt();
             (-zeta * omega0 * t_sec).exp()
-                * (zeta * omega0 / omega_d * (omega_d * t_sec).sin() + (omega_d * t_sec).cos())
+                * (zeta * omega0 / omega_d * (omega_d * t_sec).sin()
+                    + (omega_d * t_sec).cos())
         } else if (zeta - 1.0).abs() < 1e-6 {
             // Critically damped
             (-(omega0 * t_sec)).exp() * (1.0 + omega0 * t_sec)
@@ -248,11 +227,7 @@ impl AnimationTrack {
             let (a, b) = (&window[0], &window[1]);
             if t_ms >= a.time_ms && t_ms <= b.time_ms {
                 let span = b.time_ms - a.time_ms;
-                let local_t = if span > 0.0 {
-                    (t_ms - a.time_ms) / span
-                } else {
-                    1.0
-                };
+                let local_t = if span > 0.0 { (t_ms - a.time_ms) / span } else { 1.0 };
                 let eased = a
                     .easing
                     .as_ref()
@@ -273,7 +248,8 @@ fn interpolate_json(a: &serde_json::Value, b: &serde_json::Value, t: f32) -> ser
             if let (Some(av), Some(bv)) = (an.as_f64(), bn.as_f64()) {
                 let result = av + (bv - av) * t as f64;
                 serde_json::Value::Number(
-                    serde_json::Number::from_f64(result).unwrap_or_else(|| bn.clone()),
+                    serde_json::Number::from_f64(result)
+                        .unwrap_or_else(|| bn.clone()),
                 )
             } else {
                 b.clone()
@@ -335,10 +311,7 @@ mod tests {
         for i in 1..=10 {
             let t = i as f32 / 10.0;
             let y = cb.evaluate(t);
-            assert!(
-                y >= prev,
-                "ease should be monotone: t={t} y={y} prev={prev}"
-            );
+            assert!(y >= prev, "ease should be monotone: t={t} y={y} prev={prev}");
             prev = y;
         }
     }
@@ -347,10 +320,7 @@ mod tests {
     fn spring_settles_to_one() {
         let sp = SpringParams::default();
         let settled = sp.evaluate(5.0);
-        assert!(
-            settled > 0.99,
-            "spring should settle near 1.0 after 5s, got {settled}"
-        );
+        assert!(settled > 0.99, "spring should settle near 1.0 after 5s, got {settled}");
     }
 
     #[test]
@@ -366,16 +336,8 @@ mod tests {
             node_id: crate::node::NodeId::new(),
             property: "transform.x".into(),
             keyframes: vec![
-                Keyframe {
-                    time_ms: 0.0,
-                    value: serde_json::json!(0.0),
-                    easing: None,
-                },
-                Keyframe {
-                    time_ms: 100.0,
-                    value: serde_json::json!(100.0),
-                    easing: None,
-                },
+                Keyframe { time_ms: 0.0, value: serde_json::json!(0.0), easing: None },
+                Keyframe { time_ms: 100.0, value: serde_json::json!(100.0), easing: None },
             ],
         };
         let mid = track.evaluate_at(50.0).unwrap();
