@@ -11,7 +11,7 @@ test("demo deck covers multiple acceptance-style scenes", () => {
   const document = loadDemoDocument();
   const sceneNames = document.scenes.map((scene) => scene.name);
 
-  assert.ok(document.scenes.length >= 4, "expected multiple demo scenes");
+  assert.ok(document.scenes.length >= 4, "expected at least 4 demo scenes");
   assert.deepEqual(sceneNames, [
     "Title Reveal",
     "Technical Before / After",

@@ -675,8 +675,8 @@ function addArchitectureCard(
   );
 }
 
-function makeTransform(x: number, y: number, width: number, height: number) {
-  return { x, y, width, height, rotation: 0, scale_x: 1, scale_y: 1 };
+function makeTransform(left: number, top: number, width: number, height: number) {
+  return { x: left, y: top, width, height, rotation: 0, scale_x: 1, scale_y: 1 };
 }
 
 function makeFrameNode(
