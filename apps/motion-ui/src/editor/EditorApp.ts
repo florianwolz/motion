@@ -17,6 +17,7 @@ import { Canvas2DRenderer } from "../lib/renderer.js";
 import { buildDemoDocumentJson } from "./demo.js";
 
 const AUTOSAVE_KEY = "motion-current-doc";
+const AUTOSAVE_INTERVAL_MS = 1500;
 
 let engine: EngineHandle | null = null;
 let renderer: Canvas2DRenderer | null = null;
@@ -336,7 +337,7 @@ function renderSelectionOverlay(container: HTMLElement): void {
 
 function startAutosave(container: HTMLElement): void {
   if (autosaveTimer !== null) window.clearInterval(autosaveTimer);
-  autosaveTimer = window.setInterval(() => saveDocument(container, "Autosaved"), 1500);
+  autosaveTimer = window.setInterval(() => saveDocument(container, "Autosaved"), AUTOSAVE_INTERVAL_MS);
   window.addEventListener("beforeunload", () => saveDocument(container, "Saved before unload"));
 }
 

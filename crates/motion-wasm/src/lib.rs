@@ -15,6 +15,9 @@ use motion_render::RenderTreeBuilder;
 use serde_json::{json, Value};
 use wasm_bindgen::prelude::*;
 
+const MIN_NODE_SIZE: f32 = 24.0;
+const RESIZE_HANDLE_THRESHOLD: f32 = 10.0;
+
 #[derive(Debug, Clone, Copy)]
 enum ResizeHandle {
     North,
@@ -106,6 +109,11 @@ impl MotionEngine {
         let source = payload.get("tokens").unwrap_or(&payload);
         let mut collected = Vec::new();
         collect_tokens(source, &mut collected);
+        if collected.is_empty() {
+            return Err(JsValue::from_str(
+                "Brand payload did not contain any dotted token entries",
+            ));
+        }
         for (path, value) in collected {
             self.inner.document_mut().tokens.tokens.insert(path, value);
         }
@@ -204,43 +212,42 @@ impl MotionEngine {
                 if let Some(node) = self.inner.document_mut().node_mut(node_id) {
                     let dx = x - start_x;
                     let dy = y - start_y;
-                    let min_size = 24.0;
                     let mut next = origin.clone();
 
                     match handle {
                         ResizeHandle::East => {
-                            next.width = (origin.width + dx).max(min_size);
+                            next.width = (origin.width + dx).max(MIN_NODE_SIZE);
                         }
                         ResizeHandle::West => {
-                            next.width = (origin.width - dx).max(min_size);
+                            next.width = (origin.width - dx).max(MIN_NODE_SIZE);
                             next.x = origin.x + (origin.width - next.width);
                         }
                         ResizeHandle::South => {
-                            next.height = (origin.height + dy).max(min_size);
+                            next.height = (origin.height + dy).max(MIN_NODE_SIZE);
                         }
                         ResizeHandle::North => {
-                            next.height = (origin.height - dy).max(min_size);
+                            next.height = (origin.height - dy).max(MIN_NODE_SIZE);
                             next.y = origin.y + (origin.height - next.height);
                         }
                         ResizeHandle::NorthEast => {
-                            next.height = (origin.height - dy).max(min_size);
+                            next.height = (origin.height - dy).max(MIN_NODE_SIZE);
                             next.y = origin.y + (origin.height - next.height);
-                            next.width = (origin.width + dx).max(min_size);
+                            next.width = (origin.width + dx).max(MIN_NODE_SIZE);
                         }
                         ResizeHandle::NorthWest => {
-                            next.height = (origin.height - dy).max(min_size);
+                            next.height = (origin.height - dy).max(MIN_NODE_SIZE);
                             next.y = origin.y + (origin.height - next.height);
-                            next.width = (origin.width - dx).max(min_size);
+                            next.width = (origin.width - dx).max(MIN_NODE_SIZE);
                             next.x = origin.x + (origin.width - next.width);
                         }
                         ResizeHandle::SouthEast => {
-                            next.width = (origin.width + dx).max(min_size);
-                            next.height = (origin.height + dy).max(min_size);
+                            next.width = (origin.width + dx).max(MIN_NODE_SIZE);
+                            next.height = (origin.height + dy).max(MIN_NODE_SIZE);
                         }
                         ResizeHandle::SouthWest => {
-                            next.width = (origin.width - dx).max(min_size);
+                            next.width = (origin.width - dx).max(MIN_NODE_SIZE);
                             next.x = origin.x + (origin.width - next.width);
-                            next.height = (origin.height + dy).max(min_size);
+                            next.height = (origin.height + dy).max(MIN_NODE_SIZE);
                         }
                     }
 
@@ -507,7 +514,7 @@ impl MotionEngine {
 
     fn detect_resize_handle(&self, node_id: NodeId, x: f32, y: f32) -> Option<ResizeHandle> {
         let absolute = self.absolute_transform(node_id);
-        let threshold = 10.0;
+        let threshold = RESIZE_HANDLE_THRESHOLD;
         let left = absolute.x;
         let right = absolute.x + absolute.width;
         let top = absolute.y;

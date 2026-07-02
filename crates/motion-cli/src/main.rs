@@ -9,6 +9,11 @@ use motion_core::{
     tokens::{parse_hex_color, TokenStore},
 };
 
+const PDF_CATALOG_OBJECT_ID: u32 = 1;
+const PDF_PAGES_OBJECT_ID: u32 = 2;
+const PDF_FIRST_PAGE_OBJECT_ID: u32 = 3;
+const PDF_OBJECTS_PER_SCENE: u32 = 2;
+
 #[derive(Parser)]
 #[command(
     name = "motion",
@@ -81,7 +86,7 @@ fn run(cli: Cli) -> Result<(), String> {
         }
         Commands::Export { file, format, output } => {
             let document = load_document(&file)?;
-            let extension = if format == "bundle" { "html" } else { format.as_str() };
+            let extension = output_extension_for(&format);
             let output_path = output.unwrap_or_else(|| format!("output.{extension}"));
             export_document(&document, &format, PathBuf::from(&output_path))?;
             println!("Exported {file} → {output_path} ({format})");
@@ -108,6 +113,14 @@ fn export_document(document: &Document, format: &str, output: PathBuf) -> Result
         "pdf" => fs::write(&output, render_pdf_document(document))
             .map_err(|error| format!("failed to write {}: {error}", output.display())),
         other => Err(format!("unsupported export format: {other}")),
+    }
+}
+
+fn output_extension_for(format: &str) -> &str {
+    match format {
+        // The bundle export currently produces a self-contained static HTML fallback.
+        "bundle" => "html",
+        other => other,
     }
 }
 
@@ -202,25 +215,28 @@ fn render_node_html(document: &Document, node: &Node, absolute: &Transform) -> S
 
 fn render_pdf_document(document: &Document) -> Vec<u8> {
     let mut objects = Vec::new();
-    let mut page_ids = Vec::new();
-    let font_id = 3 + (document.scenes.len() as u32 * 2);
+    let font_id = PDF_FIRST_PAGE_OBJECT_ID + (document.scenes.len() as u32 * PDF_OBJECTS_PER_SCENE);
 
     objects.push("<< /Type /Catalog /Pages 2 0 R >>".to_string());
 
     let kids = (0..document.scenes.len())
-        .map(|index| format!("{} 0 R", 3 + (index as u32 * 2)))
+        .map(|index| {
+            format!(
+                "{} 0 R",
+                PDF_FIRST_PAGE_OBJECT_ID + (index as u32 * PDF_OBJECTS_PER_SCENE)
+            )
+        })
         .collect::<Vec<_>>()
         .join(" ");
     objects.push(format!("<< /Type /Pages /Count {} /Kids [{}] >>", document.scenes.len(), kids));
 
     for (index, scene) in document.scenes.iter().enumerate() {
-        let page_id = 3 + (index as u32 * 2);
+        let page_id = PDF_FIRST_PAGE_OBJECT_ID + (index as u32 * PDF_OBJECTS_PER_SCENE);
         let content_id = page_id + 1;
-        page_ids.push(page_id);
 
         let page = format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1280 720] /Resources << /Font << /F1 {} 0 R >> >> /Contents {} 0 R >>",
-            font_id, content_id
+            "<< /Type /Page /Parent {} 0 R /MediaBox [0 0 1280 720] /Resources << /Font << /F1 {} 0 R >> >> /Contents {} 0 R >>",
+            PDF_PAGES_OBJECT_ID, font_id, content_id
         );
         objects.push(page);
 
@@ -246,8 +262,9 @@ fn render_pdf_document(document: &Document) -> Vec<u8> {
     }
     let _ = write!(
         pdf,
-        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
+        "trailer\n<< /Size {} /Root {} 0 R >>\nstartxref\n{}\n%%EOF\n",
         objects.len() + 1,
+        PDF_CATALOG_OBJECT_ID,
         xref_offset
     );
 
