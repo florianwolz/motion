@@ -53,12 +53,15 @@ pub enum DrawPass {
 ///
 /// Priority (highest wins):
 /// 1. Glass material  → [`DrawPass::Glass`]
-/// 2. MatteCard material (has drop shadow) → [`DrawPass::Shadow`]
-/// 3. Glow material → [`DrawPass::Composite`]
-/// 4. Blur radius > 0 → [`DrawPass::Blur`]
-/// 5. Text content → [`DrawPass::Text`]
-/// 6. Image / Video content → [`DrawPass::ImageVideo`]
-/// 7. Everything else → [`DrawPass::Shape`]
+/// 2. Glow material → [`DrawPass::Composite`]
+/// 3. Blur radius > 0 → [`DrawPass::Blur`]
+/// 4. Text content → [`DrawPass::Text`]
+/// 5. Image / Video content → [`DrawPass::ImageVideo`]
+/// 6. Everything else (including `MatteCard`) → [`DrawPass::Shape`]
+///
+/// Note: [`DrawPass::Shadow`] is reserved for future depth shadow map pre-passes
+/// (à la GPU shadow mapping).  Matte-card drop shadows are CSS-style decorations
+/// attached to the card surface and therefore belong in the [`DrawPass::Shape`] pass.
 pub fn assign_draw_pass(
     content: &RenderContent,
     material: Option<&ResolvedMaterial>,
@@ -68,9 +71,12 @@ pub fn assign_draw_pass(
     if let Some(mat) = material {
         match mat {
             ResolvedMaterial::Glass(_) => return DrawPass::Glass,
-            ResolvedMaterial::MatteCard(_) => return DrawPass::Shadow,
             ResolvedMaterial::Glow(_) => return DrawPass::Composite,
-            _ => {}
+            // MatteCard is a solid surface with a CSS-style drop shadow —
+            // it renders in the Shape pass alongside other background surfaces.
+            ResolvedMaterial::Solid { .. }
+            | ResolvedMaterial::MatteCard(_)
+            | ResolvedMaterial::Gradient(_) => {}
         }
     }
 
@@ -223,8 +229,9 @@ mod tests {
 
     #[test]
     fn card_material_overrides_to_shadow_pass() {
-        assert_eq!(assign_draw_pass(&shape_content(), Some(&card_material()), 0.0), DrawPass::Shadow);
-        assert_eq!(assign_draw_pass(&text_content(), Some(&card_material()), 0.0), DrawPass::Shadow);
+        // MatteCard is a CSS-style drop-shadow surface — it renders in the Shape pass.
+        assert_eq!(assign_draw_pass(&shape_content(), Some(&card_material()), 0.0), DrawPass::Shape);
+        assert_eq!(assign_draw_pass(&text_content(), Some(&card_material()), 0.0), DrawPass::Text);
     }
 
     #[test]
@@ -246,7 +253,8 @@ mod tests {
 
     #[test]
     fn blur_is_overridden_by_card_material() {
-        assert_eq!(assign_draw_pass(&shape_content(), Some(&card_material()), 8.0), DrawPass::Shadow);
+        // MatteCard doesn't override the Blur pass — blur wins over card material.
+        assert_eq!(assign_draw_pass(&shape_content(), Some(&card_material()), 8.0), DrawPass::Blur);
     }
 
     #[test]

@@ -656,7 +656,8 @@ mod tests {
         let builder = RenderTreeBuilder::new(&doc, &overlay);
         let tree = builder.build(sid, 1920.0, 1080.0, 1.0).unwrap();
         let rn = tree.nodes.iter().find(|n| n.id == shape_id).unwrap();
-        assert_eq!(rn.draw_pass, crate::passes::DrawPass::Shadow);
+        // MatteCard is a CSS drop-shadow surface — it renders in the Shape pass.
+        assert_eq!(rn.draw_pass, crate::passes::DrawPass::Shape);
     }
 
     #[test]

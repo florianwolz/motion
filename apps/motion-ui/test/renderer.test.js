@@ -525,7 +525,7 @@ test("Canvas2DRenderer: child nodes are traversed", () => {
 test("Canvas2DRenderer: matte_card material sets shadow properties", () => {
   const { canvas, calls } = makeMockCanvas();
   const renderer = new Canvas2DRenderer(canvas);
-  const node = makeRenderNode("card", "shadow", { type: "frame" }, {
+  const node = makeRenderNode("card", "shape", { type: "frame" }, {
     material: {
       type: "matte_card",
       background: rgba(0.1, 0.1, 0.1, 1),
@@ -575,5 +575,5 @@ test("Canvas2DRenderer: pass-order — shape drawn before text", () => {
     "both fill and fillText must be called"
   );
   // Note: this assertion relies on the shape root being promoted before the text root.
-  assert.ok(lastFillIndex < firstTextIndex || fills.length === 0, "shape fill before text fill");
+  assert.ok(lastFillIndex < firstTextIndex, "shape fill before text fill");
 });
