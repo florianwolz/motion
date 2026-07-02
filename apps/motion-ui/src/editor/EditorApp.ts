@@ -18,6 +18,9 @@ import { buildDemoDocumentJson } from "./demo.js";
 
 const AUTOSAVE_KEY = "motion-current-doc";
 const AUTOSAVE_INTERVAL_MS = 1500;
+const LAYER_BASE_INDENT_PX = 8;
+const LAYER_INDENT_PER_LEVEL_PX = 12;
+const LEGACY_UUID_INDEX = 0;
 
 let engine: EngineHandle | null = null;
 let renderer: Canvas2DRenderer | null = null;
@@ -210,7 +213,7 @@ function wireKeyboardShortcuts(container: HTMLElement): void {
       return;
     }
 
-    if (event.key === "ArrowRight" || event.key === "ArrowDown" || event.key === " ") {
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
       event.preventDefault();
       if (engine.nextStep()) refreshTimeline(container);
       return;
@@ -239,19 +242,12 @@ function addStepFromSelection(container: HTMLElement, mode: "reveal" | "hide"): 
     return;
   }
 
-  const command = {
-    type: "add_step",
-    scene_id: { Uuid: inspector.scene_id },
-    name: `${mode === "reveal" ? "Reveal" : "Hide"} ${inspector.selected.name}`,
-    commands: [
-      {
-        type: mode,
-        target: { Uuid: inspector.selected.id },
-      },
-    ],
-    transition: null,
-    notes: null,
-  };
+  const command = buildAddStepCommand(
+    inspector.scene_id,
+    inspector.selected.id,
+    inspector.selected.name,
+    mode
+  );
 
   engine.applyCommand(JSON.stringify(command));
   refreshEditorState(container);
@@ -341,7 +337,7 @@ function refreshLayers(container: HTMLElement): void {
     if (!node) return;
     const active = selectedId === nodeId ? "active" : "";
     rows.push(
-      `<li class="layer-item ${active}" data-id="${nodeId}" style="padding-left:${8 + depth * 12}px">${escapeHtml(node.name)}</li>`
+      `<li class="layer-item ${active}" data-id="${escapeHtml(nodeId)}" style="padding-left:${LAYER_BASE_INDENT_PX + depth * LAYER_INDENT_PER_LEVEL_PX}px">${escapeHtml(node.name)}</li>`
     );
     node.children.forEach((child) => walk(child, depth + 1));
   };
@@ -551,8 +547,31 @@ function parseUuid(value: unknown): string | null {
   if (typeof value === "string") return value;
   if (!value || typeof value !== "object") return null;
   const candidate = value as Record<string, unknown>;
-  const known = candidate.Uuid ?? candidate.uuid ?? candidate[0];
+  // Some legacy JSON payloads encode tuple-struct UUIDs with an index key (`{ "0": "..." }`).
+  // This keeps autosaved payload compatibility when older documents are loaded.
+  const known = candidate.Uuid ?? candidate.uuid ?? candidate[LEGACY_UUID_INDEX];
   return typeof known === "string" ? known : null;
+}
+
+function buildAddStepCommand(
+  sceneId: string,
+  targetId: string,
+  targetName: string,
+  mode: "reveal" | "hide"
+): Record<string, unknown> {
+  return {
+    type: "add_step",
+    scene_id: { Uuid: sceneId },
+    name: `${mode === "reveal" ? "Reveal" : "Hide"} ${targetName}`,
+    commands: [
+      {
+        type: mode,
+        target: { Uuid: targetId },
+      },
+    ],
+    transition: null,
+    notes: null,
+  };
 }
 
 function buildNodeMap(nodes: Record<string, unknown>): Map<string, SerializedNode> {
@@ -581,8 +600,8 @@ function buildShellHtml(): string {
         <div class="toolbar-actions">
           <button id="btn-undo" title="Undo (Ctrl+Z)">↩ Undo</button>
           <button id="btn-redo" title="Redo (Ctrl+Shift+Z)">↪ Redo</button>
-          <button id="btn-step-reveal" title="Create reveal step from selection">＋ Reveal step</button>
-          <button id="btn-step-hide" title="Create hide step from selection">＋ Hide step</button>
+          <button id="btn-step-reveal" title="Create reveal step from selection">+ Reveal step</button>
+          <button id="btn-step-hide" title="Create hide step from selection">+ Hide step</button>
           <button id="btn-preflight" title="Run preflight checks">🔍 Preflight</button>
           <button id="btn-brand" title="Load token JSON">🎨 Load brand</button>
           <button id="btn-present" title="Open presentation mode">▶ Present</button>
