@@ -79,7 +79,15 @@ impl<'a> RenderTreeBuilder<'a> {
 
         // Opacity: multiply node opacity by dim factor from overlay.
         let base_opacity = self.tokens.resolve_f32(&node.style.opacity).unwrap_or(1.0);
-        let dim = overlay_state.map(|s| s.dim_factor).unwrap_or(1.0);
+        let dim = if let Some(target) = self.overlay.dim_others_target {
+            if target == node_id {
+                overlay_state.map(|s| s.dim_factor).unwrap_or(1.0)
+            } else {
+                overlay_state.map(|s| s.dim_factor).unwrap_or(0.3)
+            }
+        } else {
+            overlay_state.map(|s| s.dim_factor).unwrap_or(1.0)
+        };
         let opacity = (base_opacity * dim).clamp(0.0, 1.0);
 
         let blur_radius = self
@@ -377,5 +385,34 @@ mod tests {
         let rn = tree.nodes.iter().find(|n| n.id == shape_id).unwrap();
         assert!(!rn.visible);
         assert_eq!(rn.opacity, 0.0);
+    }
+
+    #[test]
+    fn dim_others_overlay_applies_default_dimming() {
+        let (mut doc, sid) = make_doc();
+        let root_id = doc.scenes[0].root;
+
+        let mut first = Node::new("First", NodeKind::Shape(ShapeNode { kind: CoreShapeKind::Rectangle }));
+        first.parent = Some(root_id);
+        let first_id = first.id;
+        doc.nodes.get_mut(&root_id).unwrap().children.push(first_id);
+        doc.insert_node(first);
+
+        let mut second = Node::new("Second", NodeKind::Shape(ShapeNode { kind: CoreShapeKind::Rectangle }));
+        second.parent = Some(root_id);
+        let second_id = second.id;
+        doc.nodes.get_mut(&root_id).unwrap().children.push(second_id);
+        doc.insert_node(second);
+
+        let mut overlay = PresentationOverlay::default();
+        overlay.dim_others_target = Some(first_id);
+
+        let builder = RenderTreeBuilder::new(&doc, &overlay);
+        let tree = builder.build(sid, 1920.0, 1080.0, 1.0).unwrap();
+
+        let first_node = tree.nodes.iter().find(|n| n.id == first_id).unwrap();
+        let second_node = tree.nodes.iter().find(|n| n.id == second_id).unwrap();
+        assert_eq!(first_node.opacity, 1.0);
+        assert!(second_node.opacity < 0.31);
     }
 }

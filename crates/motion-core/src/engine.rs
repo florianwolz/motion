@@ -63,6 +63,7 @@ pub struct PresentationOverlay {
     pub node_states: HashMap<NodeId, NodePresentationState>,
     pub camera: CameraState,
     pub is_black_screen: bool,
+    pub dim_others_target: Option<NodeId>,
 }
 
 impl PresentationOverlay {
@@ -563,32 +564,15 @@ fn apply_presentation_command(overlay: &mut PresentationOverlay, cmd: &Presentat
         PresentationCommand::Focus { target } => {
             // Focus: highlight the target; dim others (handled by renderer).
             overlay.node_states.entry(*target).or_default().focused = true;
+            overlay.dim_others_target = Some(*target);
         }
         PresentationCommand::Highlight { target } => {
             overlay.node_states.entry(*target).or_default().focused = true;
         }
         PresentationCommand::DimOthers { target } => {
-            // Mark all *existing* non-target overrides as dimmed.
-            // The renderer should interpret missing entries as dimmed when a
-            // DimOthers is active.
             let entry = overlay.node_states.entry(*target).or_default();
             entry.dim_factor = 1.0; // target stays bright
-            // We track DimOthers semantics via a "focused" flag on the target;
-            // the renderer applies `dim_factor` from the overlay.
-            // For other nodes that haven't been explicitly set, the renderer
-            // queries the overlay and finds dim_factor defaults to 1.0, so we
-            // need a different approach.  We store the dim on existing entries
-            // and let the renderer apply `dim_factor=0.3` to any node that
-            // does NOT have an explicit `dim_factor=1.0` after a DimOthers step.
-            //
-            // Mark the overlay with the "has active focus" info by tagging the
-            // target node state — the renderer checks `focused && dim_factor==1`.
-            // For now, set dim on all others that already have an entry.
-            for (nid, state) in overlay.node_states.iter_mut() {
-                if *nid != *target {
-                    state.dim_factor = 0.3;
-                }
-            }
+            overlay.dim_others_target = Some(*target);
         }
         PresentationCommand::SetProperty { node, property: _, value: _ } => {
             // SetProperty is applied directly to the document via a Command,
@@ -605,6 +589,11 @@ fn apply_presentation_command(overlay: &mut PresentationOverlay, cmd: &Presentat
         }
         PresentationCommand::CameraMove { state, .. } => {
             overlay.camera = state.clone();
+        }
+        PresentationCommand::StaggeredReveal { targets, .. } => {
+            for target in targets {
+                overlay.node_states.entry(*target).or_default().visible = Some(true);
+            }
         }
         PresentationCommand::ChartHighlightSeries { .. } => {}
         PresentationCommand::Morph { .. } => {}
@@ -684,6 +673,11 @@ fn apply_property(
             node.animation.exit_preset = value
                 .as_str()
                 .map(|raw| crate::node::StyleValue::Literal(raw.to_string()));
+        }
+        "animation.stagger_delay" => {
+            node.animation.stagger_delay = value
+                .as_f64()
+                .map(|raw| crate::node::StyleValue::Literal(raw as f32));
         }
         _ => {
             return Err(EngineError::InvalidPropertyPath(path.to_string()));
@@ -901,5 +895,81 @@ mod tests {
 
         // Suppress unused variable warning
         let _ = root_id;
+    }
+
+    #[test]
+    fn dim_others_tracks_target() {
+        let (doc, scene_id) = make_doc_with_scene();
+        let mut engine = DocumentEngine::new(doc);
+
+        engine
+            .apply_command(Command::CreateNode(CreateNodeCommand {
+                scene_id,
+                parent_id: None,
+                index: None,
+                kind: NodeKind::Text(TextNode::default()),
+                name: "Focus target".into(),
+                transform: None,
+            }))
+            .unwrap();
+        let target_id = engine
+            .document()
+            .nodes
+            .values()
+            .find(|n| n.name == "Focus target")
+            .unwrap()
+            .id;
+
+        engine
+            .apply_command(Command::AddStep(AddStepCommand {
+                scene_id,
+                name: "Dim others".into(),
+                commands: vec![PresentationCommand::DimOthers { target: target_id }],
+                transition: None,
+                notes: None,
+            }))
+            .unwrap();
+
+        engine.next_step();
+        assert_eq!(engine.overlay().dim_others_target, Some(target_id));
+    }
+
+    #[test]
+    fn set_stagger_delay_property() {
+        let (doc, scene_id) = make_doc_with_scene();
+        let mut engine = DocumentEngine::new(doc);
+
+        engine
+            .apply_command(Command::CreateNode(CreateNodeCommand {
+                scene_id,
+                parent_id: None,
+                index: None,
+                kind: NodeKind::Text(TextNode::default()),
+                name: "Stagger target".into(),
+                transform: None,
+            }))
+            .unwrap();
+        let node_id = engine
+            .document()
+            .nodes
+            .values()
+            .find(|n| n.name == "Stagger target")
+            .unwrap()
+            .id;
+
+        engine
+            .apply_command(Command::SetProperty(SetPropertyCommand {
+                scene_id,
+                node_id,
+                property: "animation.stagger_delay".into(),
+                value: serde_json::json!(45.0),
+            }))
+            .unwrap();
+
+        let node = engine.document().node(node_id).unwrap();
+        match node.animation.stagger_delay.as_ref() {
+            Some(crate::node::StyleValue::Literal(delay)) => assert!((*delay - 45.0).abs() < f32::EPSILON),
+            _ => panic!("expected stagger delay literal to be set"),
+        }
     }
 }

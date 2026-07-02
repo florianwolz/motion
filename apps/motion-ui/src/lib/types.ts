@@ -76,6 +76,7 @@ export type PresentationCommand =
   | { type: "dim_others"; target: NodeId }
   | { type: "reveal"; target: NodeId }
   | { type: "hide"; target: NodeId }
+  | { type: "staggered_reveal"; targets: NodeId[]; stagger_ms?: number }
   | { type: "set_property"; node: NodeId; property: string; value: unknown }
   | { type: "replace_text"; node: NodeId; new_text: string }
   | { type: "camera_focus"; target: NodeId; zoom?: number }
@@ -129,6 +130,7 @@ export interface InspectorSelection {
   animation: {
     enter_preset: string | null;
     exit_preset: string | null;
+    stagger_delay: number | null;
   };
   text?: {
     content: string;

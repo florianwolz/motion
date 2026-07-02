@@ -390,6 +390,7 @@ impl MotionEngine {
                 "animation": {
                     "enter_preset": style_value_to_string(node.animation.enter_preset.as_ref()),
                     "exit_preset": style_value_to_string(node.animation.exit_preset.as_ref()),
+                    "stagger_delay": node.animation.stagger_delay.as_ref().and_then(|value| self.inner.document().tokens.resolve_f32(value)),
                 },
                 "text": text,
             }))
