@@ -428,4 +428,24 @@ mod tests {
         assert_eq!(document.assets.assets[0].name.as_deref(), Some("Inter"));
         assert!(verify_asset_hash(&document.assets.assets[0]));
     }
+
+    #[test]
+    fn checked_in_example_brand_builds_with_bundled_font() {
+        let brand_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../templates/brands/example-brand");
+
+        let package = build_brand_package(&brand_dir).unwrap();
+        assert_eq!(package.manifest.name, "Example Brand");
+        assert!(package
+            .manifest
+            .components
+            .iter()
+            .any(|component| component == "SimpleArchitectureDiagram"));
+        assert!(package.assets.iter().any(|asset| {
+            matches!(asset.kind, AssetKind::Font)
+                && asset.name.as_deref() == Some("Lato")
+                && asset.uri.starts_with("data:font/woff2;base64,")
+        }));
+        assert!(package.assets.iter().any(|asset| matches!(asset.kind, AssetKind::Image)));
+    }
 }

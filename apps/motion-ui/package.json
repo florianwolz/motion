@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "tsc && node --test test/**/*.test.js",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
