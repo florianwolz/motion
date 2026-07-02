@@ -314,6 +314,24 @@ impl MotionEngine {
         }
     }
 
+    /// Select a node by UUID if it exists in the current scene subtree.
+    #[wasm_bindgen(js_name = selectNode)]
+    pub fn select_node(&mut self, node_id: &str) -> bool {
+        let Ok(uuid) = node_id.parse::<uuid::Uuid>() else {
+            return false;
+        };
+        let id = NodeId(uuid);
+        let Some(scene) = self.inner.current_scene() else {
+            return false;
+        };
+        if !node_in_subtree(self.inner.document(), scene.root, id) {
+            return false;
+        }
+        self.selection = Some(id);
+        self.interaction = None;
+        true
+    }
+
     /// Restart the current scene (return to pre-step state).
     #[wasm_bindgen(js_name = restartScene)]
     pub fn restart_scene(&mut self) {
@@ -579,6 +597,19 @@ fn collect_draw_order(document: &Document, node_id: NodeId, out: &mut Vec<NodeId
             collect_draw_order(document, *child_id, out);
         }
     }
+}
+
+fn node_in_subtree(document: &Document, root: NodeId, target: NodeId) -> bool {
+    if root == target {
+        return true;
+    }
+    let Some(node) = document.node(root) else {
+        return false;
+    };
+    node.children
+        .iter()
+        .copied()
+        .any(|child| node_in_subtree(document, child, target))
 }
 
 fn point_in_transform(x: f32, y: f32, transform: &Transform) -> bool {
