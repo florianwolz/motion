@@ -4,7 +4,7 @@
 //! The engine maintains a snapshot-based undo/redo stack and tracks the
 //! current presentation position (scene + step).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use thiserror::Error;
 
@@ -14,7 +14,7 @@ use crate::{
         MoveNodeCommand, SetPropertyCommand, SetStepCommandsCommand, UngroupNodesCommand,
     },
     document::Document,
-    node::{GroupNode, Node, NodeId, NodeKind},
+    node::{ChartDataSource, ChartTransform, GroupNode, Node, NodeId, NodeKind},
     scene::{CameraState, PresentationCommand, Scene, SceneId, Step, StepId},
     tokens::TokenValue,
 };
@@ -61,6 +61,7 @@ impl NodePresentationState {
 #[derive(Debug, Clone, Default)]
 pub struct PresentationOverlay {
     pub node_states: HashMap<NodeId, NodePresentationState>,
+    pub chart_states: HashMap<NodeId, ChartPresentationState>,
     pub camera: CameraState,
     pub is_black_screen: bool,
     pub dim_others_target: Option<NodeId>,
@@ -73,6 +74,22 @@ impl PresentationOverlay {
             .get(&id)
             .cloned()
             .unwrap_or_else(NodePresentationState::normal)
+    }
+
+    #[derive(Debug, Clone, Default)]
+    pub struct ChartViewport {
+        pub x_domain: Option<[f32; 2]>,
+        pub y_domain: Option<[f32; 2]>,
+    }
+
+    #[derive(Debug, Clone, Default)]
+    pub struct ChartPresentationState {
+        pub highlighted_series: HashSet<String>,
+        pub selected_datum_id: Option<String>,
+        pub data_source_override: Option<ChartDataSource>,
+        pub transforms: Vec<ChartTransform>,
+        pub viewport: ChartViewport,
+        pub annotations: Vec<String>,
     }
 }
 
@@ -554,6 +571,10 @@ impl DocumentEngine {
 // ------------------------------------------------------------------
 
 fn apply_presentation_command(overlay: &mut PresentationOverlay, cmd: &PresentationCommand) {
+    let chart_state = |overlay: &mut PresentationOverlay, chart: NodeId| {
+        overlay.chart_states.entry(chart).or_default()
+    };
+
     match cmd {
         PresentationCommand::Reveal { target } => {
             overlay.node_states.entry(*target).or_default().visible = Some(true);
@@ -595,7 +616,54 @@ fn apply_presentation_command(overlay: &mut PresentationOverlay, cmd: &Presentat
                 overlay.node_states.entry(*target).or_default().visible = Some(true);
             }
         }
-        PresentationCommand::ChartHighlightSeries { .. } => {}
+        PresentationCommand::ChartHighlightSeries { chart, series } => {
+            chart_state(overlay, *chart)
+                .highlighted_series
+                .insert(series.clone());
+        }
+        PresentationCommand::ChartSetData { chart, data_source } => {
+            chart_state(overlay, *chart).data_source_override = Some(data_source.clone());
+        }
+        PresentationCommand::ChartApplyTransforms { chart, transforms } => {
+            chart_state(overlay, *chart).transforms.extend(transforms.iter().cloned());
+        }
+        PresentationCommand::ChartFilter { chart, filter } => {
+            chart_state(overlay, *chart).transforms.push(ChartTransform::Filter {
+                filter: filter.clone(),
+            });
+        }
+        PresentationCommand::ChartSort {
+            chart,
+            column,
+            direction,
+            preserve_identity,
+        } => {
+            chart_state(overlay, *chart).transforms.push(ChartTransform::Sort {
+                column: column.clone(),
+                direction: direction.clone(),
+                preserve_identity: *preserve_identity,
+            });
+        }
+        PresentationCommand::ChartSelectDatum { chart, datum_id } => {
+            chart_state(overlay, *chart).selected_datum_id = Some(datum_id.clone());
+        }
+        PresentationCommand::ChartSetViewport {
+            chart,
+            x_domain,
+            y_domain,
+        } => {
+            let state = chart_state(overlay, *chart);
+            state.viewport.x_domain = *x_domain;
+            state.viewport.y_domain = *y_domain;
+        }
+        PresentationCommand::ChartAnnotate {
+            chart,
+            annotation_id,
+        } => {
+            chart_state(overlay, *chart)
+                .annotations
+                .push(annotation_id.clone());
+        }
         PresentationCommand::Morph { .. } => {}
     }
 }
@@ -702,7 +770,10 @@ mod tests {
     use crate::{
         command::{AddStepCommand, CreateNodeCommand, DeleteNodeCommand, SetPropertyCommand},
         document::Document,
-        node::{FrameNode, NodeKind, TextNode, Transform},
+        node::{
+            ChartDataSource, ChartFilter, ChartFilterOperator, ChartSortDirection, ChartTable,
+            NodeKind, TextNode, Transform, FrameNode,
+        },
         scene::{PresentationCommand, Scene, SceneId},
     };
 
@@ -971,5 +1042,92 @@ mod tests {
             Some(crate::node::StyleValue::Literal(delay)) => assert!((*delay - 45.0).abs() < f32::EPSILON),
             _ => panic!("expected stagger delay literal to be set"),
         }
+    }
+
+    #[test]
+    fn chart_commands_update_chart_overlay_state() {
+        let (doc, scene_id) = make_doc_with_scene();
+        let mut engine = DocumentEngine::new(doc);
+
+        engine
+            .apply_command(Command::CreateNode(CreateNodeCommand {
+                scene_id,
+                parent_id: None,
+                index: None,
+                kind: NodeKind::Text(TextNode::default()),
+                name: "Chart proxy".into(),
+                transform: None,
+            }))
+            .unwrap();
+        let chart_id = engine
+            .document()
+            .nodes
+            .values()
+            .find(|n| n.name == "Chart proxy")
+            .unwrap()
+            .id;
+
+        engine
+            .apply_command(Command::AddStep(AddStepCommand {
+                scene_id,
+                name: "Chart interactions".into(),
+                commands: vec![
+                    PresentationCommand::ChartHighlightSeries {
+                        chart: chart_id,
+                        series: "revenue".into(),
+                    },
+                    PresentationCommand::ChartFilter {
+                        chart: chart_id,
+                        filter: ChartFilter {
+                            column: "region".into(),
+                            operator: ChartFilterOperator::Eq,
+                            value: serde_json::json!("EMEA"),
+                            secondary_value: None,
+                        },
+                    },
+                    PresentationCommand::ChartSort {
+                        chart: chart_id,
+                        column: "revenue".into(),
+                        direction: ChartSortDirection::Descending,
+                        preserve_identity: true,
+                    },
+                    PresentationCommand::ChartSelectDatum {
+                        chart: chart_id,
+                        datum_id: "d-1".into(),
+                    },
+                    PresentationCommand::ChartSetViewport {
+                        chart: chart_id,
+                        x_domain: Some([0.0, 10.0]),
+                        y_domain: Some([0.0, 100.0]),
+                    },
+                    PresentationCommand::ChartSetData {
+                        chart: chart_id,
+                        data_source: ChartDataSource::Inline {
+                            table: ChartTable::default(),
+                        },
+                    },
+                    PresentationCommand::ChartAnnotate {
+                        chart: chart_id,
+                        annotation_id: "callout-1".into(),
+                    },
+                ],
+                transition: None,
+                notes: None,
+            }))
+            .unwrap();
+
+        engine.next_step();
+
+        let state = engine.overlay().chart_states.get(&chart_id).unwrap();
+        assert!(state.highlighted_series.contains("revenue"));
+        assert_eq!(state.selected_datum_id.as_deref(), Some("d-1"));
+        assert_eq!(state.viewport.x_domain, Some([0.0, 10.0]));
+        assert_eq!(state.viewport.y_domain, Some([0.0, 100.0]));
+        assert_eq!(state.annotations, vec!["callout-1".to_string()]);
+        assert!(matches!(
+            state.data_source_override,
+            Some(ChartDataSource::Inline { .. })
+        ));
+        assert_eq!(state.transforms.len(), 2);
     }
 }

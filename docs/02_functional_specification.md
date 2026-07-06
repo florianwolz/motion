@@ -370,6 +370,16 @@ change data
 compare states
 ```
 
+Chart platform requirements:
+
+```text
+unified table + typed-series data model
+shared transform pipeline (sort/filter/group/pivot/calculate)
+shared chart grammar (axes/marks/legend/tooltips/annotations)
+shared interaction layer (hover/focus/select/zoom-pan/filter-sort/drill)
+shared animation grammar (enter/update/exit, identity-preserving transitions)
+```
+
 Chart animations should be semantically correct:
 
 ```text
@@ -379,6 +389,14 @@ scatter points enter according to data order or cluster
 sorted bars rearrange while preserving identity
 filtered data fades/reflows
 highlighted data uses semantic accent token
+```
+
+Quality gates for chart releases:
+
+```text
+deterministic rendering
+accessibility defaults (contrast + colorblind-safe palettes + keyboard navigation)
+export-safe fallback behavior
 ```
 
 ## Scientific and technical graphics

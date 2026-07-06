@@ -3,7 +3,9 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::node::NodeId;
+use crate::node::{
+    ChartDataSource, ChartFilter, ChartSortDirection, ChartTransform, NodeId,
+};
 use crate::tokens::TokenRef;
 
 /// Unique identifier for a scene.
@@ -80,6 +82,37 @@ pub enum PresentationCommand {
     ChartHighlightSeries {
         chart: NodeId,
         series: String,
+    },
+    ChartSetData {
+        chart: NodeId,
+        data_source: ChartDataSource,
+    },
+    ChartApplyTransforms {
+        chart: NodeId,
+        transforms: Vec<ChartTransform>,
+    },
+    ChartFilter {
+        chart: NodeId,
+        filter: ChartFilter,
+    },
+    ChartSort {
+        chart: NodeId,
+        column: String,
+        direction: ChartSortDirection,
+        preserve_identity: bool,
+    },
+    ChartSelectDatum {
+        chart: NodeId,
+        datum_id: String,
+    },
+    ChartSetViewport {
+        chart: NodeId,
+        x_domain: Option<[f32; 2]>,
+        y_domain: Option<[f32; 2]>,
+    },
+    ChartAnnotate {
+        chart: NodeId,
+        annotation_id: String,
     },
     CameraFocus {
         target: NodeId,
