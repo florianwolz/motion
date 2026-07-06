@@ -57,7 +57,46 @@ export type RenderContent =
       line_height: number;
     }
   | { type: "image"; uri: string }
-  | { type: "video"; uri: string };
+  | { type: "video"; uri: string }
+  | {
+      type: "chart";
+      kind: ChartKind;
+      bars: ResolvedBar[];
+      lines: ResolvedLineSeries[];
+      title: string | null;
+      subtitle: string | null;
+      highlighted_series: string[];
+    };
+
+/** Chart type — mirrors the Rust render_tree::ChartKind enum. */
+export type ChartKind =
+  | "bar" | "line" | "area" | "scatter" | "histogram"
+  | "waterfall" | "heatmap" | "timeline" | "combo"
+  | "stacked_bar" | "stacked_area" | "lollipop" | "pareto"
+  | "funnel" | "bullet" | "waffle" | "table" | "matrix"
+  | "kpi_card" | "gantt" | "sparkline" | "sankey" | "treemap"
+  | "sunburst" | "chord" | "alluvial" | "network" | "radial_tree"
+  | "dendrogram" | "box" | "violin" | "ridgeline" | "density"
+  | "parallel_coordinates" | "hexbin" | "contour" | "error_bar"
+  | "candlestick" | "ohlc" | "wind_rose" | "ternary";
+
+/** A single resolved bar ready for Canvas2D rendering. */
+export interface ResolvedBar {
+  label: string;
+  value_norm: number;  // 0–1
+  value: number;
+  color: RgbaColor;
+  series_id: string;
+}
+
+/** A resolved line/area series. */
+export interface ResolvedLineSeries {
+  series_id: string;
+  label: string;
+  points: [number, number][];  // normalised [x, y] in [0,1]×[0,1]
+  color: RgbaColor;
+  filled: boolean;
+}
 
 export type ResolvedMaterial =
   | { type: "solid"; color: RgbaColor }
@@ -340,7 +379,221 @@ export class Canvas2DRenderer {
         ctx.textAlign = "center";
         ctx.fillText("▶ Video", t.width / 2, t.height / 2);
         break;
+
+      case "chart":
+        this.drawChart(c, t.width, t.height);
+        break;
     }
+  }
+
+  private drawChart(
+    c: Extract<RenderContent, { type: "chart" }>,
+    w: number,
+    h: number
+  ): void {
+    const { ctx } = this;
+
+    // Background.
+    ctx.fillStyle = "rgba(0,0,0,0)";
+    ctx.fillRect(0, 0, w, h);
+
+    // Title / subtitle.
+    let contentTop = 0;
+    if (c.title) {
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.font = `bold ${Math.max(14, h * 0.055)}px system-ui, sans-serif`;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText(c.title, 0, 0, w);
+      contentTop += h * 0.08;
+    }
+    if (c.subtitle) {
+      ctx.fillStyle = "rgba(255,255,255,0.55)";
+      ctx.font = `${Math.max(11, h * 0.038)}px system-ui, sans-serif`;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText(c.subtitle, 0, contentTop, w);
+      contentTop += h * 0.065;
+    }
+
+    const chartH = h - contentTop;
+    ctx.save();
+    ctx.translate(0, contentTop);
+
+    switch (c.kind) {
+      case "bar":
+      case "stacked_bar":
+      case "histogram":
+        this.drawBarChart(c.bars, c.highlighted_series, w, chartH);
+        break;
+      case "line":
+      case "area":
+        this.drawLineChart(c.lines, c.highlighted_series, w, chartH);
+        break;
+      case "kpi_card":
+        this.drawKpiCard(c.bars, w, chartH);
+        break;
+      default:
+        // Generic bar fallback for unimplemented kinds.
+        if (c.bars.length > 0) {
+          this.drawBarChart(c.bars, c.highlighted_series, w, chartH);
+        } else if (c.lines.length > 0) {
+          this.drawLineChart(c.lines, c.highlighted_series, w, chartH);
+        } else {
+          ctx.fillStyle = "rgba(255,255,255,0.12)";
+          ctx.fillRect(0, 0, w, chartH);
+          ctx.fillStyle = "rgba(255,255,255,0.35)";
+          ctx.font = `${Math.max(12, chartH * 0.07)}px system-ui, sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(`[${c.kind} chart]`, w / 2, chartH / 2);
+        }
+    }
+
+    ctx.restore();
+  }
+
+  private drawBarChart(
+    bars: ResolvedBar[],
+    highlightedSeries: string[],
+    w: number,
+    h: number
+  ): void {
+    if (bars.length === 0) return;
+    const { ctx } = this;
+
+    const padX = w * 0.04;
+    const padTop = h * 0.06;
+    const padBottom = h * 0.16;
+    const chartW = w - padX * 2;
+    const chartH = h - padTop - padBottom;
+    const barGap = chartW / bars.length;
+    const barW = barGap * 0.65;
+    const barOffX = (barGap - barW) / 2;
+
+    // Axis line.
+    ctx.strokeStyle = "rgba(255,255,255,0.15)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padX, padTop + chartH);
+    ctx.lineTo(padX + chartW, padTop + chartH);
+    ctx.stroke();
+
+    bars.forEach((bar, i) => {
+      const x = padX + i * barGap + barOffX;
+      const barH = bar.value_norm * chartH;
+      const y = padTop + chartH - barH;
+
+      const isHighlighted = highlightedSeries.includes(bar.series_id);
+      const isDimmed = highlightedSeries.length > 0 && !isHighlighted;
+
+      const alpha = isDimmed ? 0.25 : 1.0;
+      const c = bar.color;
+      ctx.fillStyle = `rgba(${Math.round(c.r*255)},${Math.round(c.g*255)},${Math.round(c.b*255)},${alpha})`;
+      ctx.fillRect(x, y, barW, barH);
+
+      // Label.
+      ctx.fillStyle = `rgba(255,255,255,${isDimmed ? 0.2 : 0.55})`;
+      ctx.font = `${Math.max(9, barGap * 0.2)}px system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText(bar.label, x + barW / 2, padTop + chartH + 6, barGap);
+    });
+  }
+
+  private drawLineChart(
+    series: ResolvedLineSeries[],
+    highlightedSeries: string[],
+    w: number,
+    h: number
+  ): void {
+    if (series.length === 0) return;
+    const { ctx } = this;
+
+    const padX = w * 0.04;
+    const padY = h * 0.08;
+    const chartW = w - padX * 2;
+    const chartH = h - padY * 2;
+
+    // Axis lines.
+    ctx.strokeStyle = "rgba(255,255,255,0.12)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padX, padY);
+    ctx.lineTo(padX, padY + chartH);
+    ctx.lineTo(padX + chartW, padY + chartH);
+    ctx.stroke();
+
+    series.forEach((s) => {
+      if (s.points.length === 0) return;
+      const isDimmed = highlightedSeries.length > 0 && !highlightedSeries.includes(s.series_id);
+      const alpha = isDimmed ? 0.2 : 1.0;
+      const c = s.color;
+      const cssColor = `rgba(${Math.round(c.r*255)},${Math.round(c.g*255)},${Math.round(c.b*255)},${alpha})`;
+
+      ctx.beginPath();
+      s.points.forEach(([nx, ny], idx) => {
+        const px = padX + nx * chartW;
+        const py = padY + (1 - ny) * chartH;
+        if (idx === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+
+      if (s.filled) {
+        const lastPt = s.points[s.points.length - 1];
+        const firstPt = s.points[0];
+        if (lastPt && firstPt) {
+          ctx.lineTo(padX + lastPt[0] * chartW, padY + chartH);
+          ctx.lineTo(padX + firstPt[0] * chartW, padY + chartH);
+          ctx.closePath();
+          ctx.fillStyle = cssColor.replace(/[\d.]+\)$/, `${alpha * 0.3})`);
+          ctx.fill();
+          ctx.beginPath();
+          s.points.forEach(([nx, ny], idx) => {
+            const px = padX + nx * chartW;
+            const py = padY + (1 - ny) * chartH;
+            if (idx === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          });
+        }
+      }
+
+      ctx.strokeStyle = cssColor;
+      ctx.lineWidth = isDimmed ? 1 : 2;
+      ctx.stroke();
+    });
+  }
+
+  private drawKpiCard(
+    bars: ResolvedBar[],
+    w: number,
+    h: number
+  ): void {
+    if (bars.length === 0) return;
+    const { ctx } = this;
+    const bar = bars[0];
+    if (!bar) return;
+    const c = bar.color;
+
+    // Large KPI value.
+    const valueStr = bar.value >= 1000
+      ? `${(bar.value / 1000).toFixed(1)}k`
+      : bar.value % 1 === 0
+        ? bar.value.toString()
+        : bar.value.toFixed(1);
+
+    ctx.fillStyle = `rgba(${Math.round(c.r*255)},${Math.round(c.g*255)},${Math.round(c.b*255)},1)`;
+    ctx.font = `bold ${Math.max(32, h * 0.45)}px system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(valueStr, w / 2, h * 0.42);
+
+    // Label below.
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.font = `${Math.max(12, h * 0.13)}px system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(bar.label, w / 2, h * 0.72);
   }
 
   private drawShape(

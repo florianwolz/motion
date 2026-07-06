@@ -7,9 +7,12 @@
  *   - Preflight check before starting
  *   - BroadcastChannel for presenter-view sync (same machine)
  *   - Black screen toggle
+ *   - Compiled deck bundle loading (.motiondeck)
+ *   - Asset preload pipeline (fonts, images)
+ *   - Reduced mode (simplified rendering for weak machines)
  */
 
-import { initEngine, createEngine, parseRenderTree, parsePreflight, parsePosition } from "../lib/engine.js";
+import { initEngine, createEngine, parseRenderTree, parsePreflight, parsePosition, parsePresenterState } from "../lib/engine.js";
 import { isSupportedSavedDocument } from "../lib/documentState.js";
 import type { EngineHandle } from "../lib/engine.js";
 import { Canvas2DRenderer } from "../lib/renderer.js";
@@ -17,6 +20,7 @@ import { Canvas2DRenderer } from "../lib/renderer.js";
 let engine: EngineHandle | null = null;
 let renderer: Canvas2DRenderer | null = null;
 let isBlackScreen = false;
+let isReducedMode = false;
 
 /** BroadcastChannel for syncing presenter state with a second window/tab. */
 let presenterChannel: BroadcastChannel | null = null;
@@ -31,13 +35,16 @@ export async function mountPresenter(container: HTMLElement): Promise<void> {
     await initEngine();
     engine = createEngine();
 
-    // Load document: prefer URL param, then localStorage, then demo.
+    // Load document: prefer URL param bundle, then localStorage, then demo.
     await loadDocumentForPresenter();
+
+    // Preload bundled assets before starting the presentation.
+    await preloadAssets();
 
     // Run preflight.
     runPreflight(container);
 
-    // Open presenter sync channel.
+    // Open presenter sync channel and open notes window.
     try {
       presenterChannel = new BroadcastChannel("motion-presenter");
     } catch {
@@ -60,7 +67,34 @@ export async function mountPresenter(container: HTMLElement): Promise<void> {
 async function loadDocumentForPresenter(): Promise<void> {
   if (!engine) return;
 
-  // Check for a stored document from the editor.
+  // 1. Try loading a compiled deck bundle from URL param (?bundle=<url>).
+  const bundleUrl = new URLSearchParams(window.location.search).get("bundle");
+  if (bundleUrl) {
+    try {
+      const resp = await fetch(bundleUrl);
+      if (resp.ok) {
+        const bundleJson = await resp.text();
+        engine.loadDeckBundle(bundleJson);
+        return;
+      }
+    } catch (e) {
+      console.warn("Failed to fetch bundle from URL:", e);
+    }
+  }
+
+  // 2. Try loading a bundle stored in localStorage (set by the editor's
+  //    "Compile & Open" workflow).
+  const storedBundle = localStorage.getItem("motion-compiled-bundle");
+  if (storedBundle) {
+    try {
+      engine.loadDeckBundle(storedBundle);
+      return;
+    } catch {
+      // Fall through.
+    }
+  }
+
+  // 3. Try loading a raw document from localStorage (legacy editor path).
   const stored = localStorage.getItem("motion-current-doc");
   if (stored && isSupportedSavedDocument(stored)) {
     try {
@@ -71,10 +105,65 @@ async function loadDocumentForPresenter(): Promise<void> {
     }
   }
 
-  // Fall back to the same demo document structure used by the editor.
-  // In production this would be loaded from a URL parameter or IndexedDB.
+  // 4. Fall back to the demo document.
   const { buildDemoDocumentJson } = await import("../editor/demo.js");
   engine.loadDocument(buildDemoDocumentJson());
+}
+
+// ─── Asset preloading ─────────────────────────────────────────────────────────
+
+/**
+ * Preload fonts and images bundled in the document so the first frame is
+ * immediately usable.  Blocks until all critical assets are ready or time out.
+ */
+async function preloadAssets(): Promise<void> {
+  if (!engine) return;
+
+  const docJson = engine.serializeDocument();
+  let doc: { assets?: { assets?: Array<{ kind: string; uri: string; name?: string }> } };
+  try {
+    doc = JSON.parse(docJson);
+  } catch {
+    return;
+  }
+
+  const assets = doc.assets?.assets ?? [];
+  const preloadTasks: Promise<void>[] = [];
+
+  for (const asset of assets) {
+    if (asset.kind === "font" && asset.uri.startsWith("data:font/") && asset.name) {
+      preloadTasks.push(preloadFont(asset.name, asset.uri));
+    } else if (asset.kind === "image" && asset.uri.startsWith("data:image/")) {
+      preloadTasks.push(preloadImage(asset.uri));
+    }
+  }
+
+  if (preloadTasks.length > 0) {
+    // Use a generous timeout — assets in data URIs load quickly.
+    await Promise.race([
+      Promise.allSettled(preloadTasks),
+      new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+    ]);
+  }
+}
+
+function preloadFont(family: string, uri: string): Promise<void> {
+  return new Promise((resolve) => {
+    const font = new FontFace(family, `url(${uri})`);
+    font.load().then((loaded) => {
+      document.fonts.add(loaded);
+      resolve();
+    }).catch(() => resolve());
+  });
+}
+
+function preloadImage(uri: string): Promise<void> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve();
+    img.onerror = () => resolve();
+    img.src = uri;
+  });
 }
 
 // ─── Preflight ────────────────────────────────────────────────────────────────
@@ -130,7 +219,7 @@ function startRenderLoop(container: HTMLElement): void {
 
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const dpr = window.devicePixelRatio ?? 1;
+    const dpr = isReducedMode ? 1 : (window.devicePixelRatio ?? 1);
     engine.setViewport(w, h, dpr);
 
     const treeJson = engine.render(ts);
@@ -154,22 +243,33 @@ function handleKeyDown(event: KeyboardEvent): void {
     case " ":
       event.preventDefault();
       engine.nextStep();
-      broadcastPosition();
+      broadcastPresenterState();
       break;
     case "ArrowLeft":
     case "ArrowUp":
       event.preventDefault();
       engine.previousStep();
-      broadcastPosition();
+      broadcastPresenterState();
       break;
     case "r":
     case "R":
       engine.restartScene();
-      broadcastPosition();
+      broadcastPresenterState();
       break;
     case "b":
     case "B":
       isBlackScreen = !isBlackScreen;
+      broadcastPresenterState();
+      break;
+    case "p":
+    case "P":
+      // Toggle reduced / performance mode.
+      isReducedMode = !isReducedMode;
+      break;
+    case "n":
+    case "N":
+      // Open / focus the presenter notes window.
+      openPresenterView();
       break;
     case "f":
     case "F":
@@ -187,9 +287,15 @@ function handleKeyDown(event: KeyboardEvent): void {
   }
 }
 
-function broadcastPosition(): void {
+function openPresenterView(): void {
+  const url = new URL("/presenter-view", window.location.href).href;
+  window.open(url, "motion-presenter-view", "width=800,height=600,menubar=no,toolbar=no,location=no");
+}
+
+function broadcastPresenterState(): void {
   if (!engine || !presenterChannel) return;
-  presenterChannel.postMessage({ type: "position", position: engine.getPosition() });
+  const state = engine.getPresenterState();
+  presenterChannel.postMessage({ type: "presenter_state", state });
 }
 
 function updatePositionIndicator(container: HTMLElement): void {
@@ -199,6 +305,10 @@ function updatePositionIndicator(container: HTMLElement): void {
   if (el) {
     const step = pos.step_idx !== null ? `Step ${pos.step_idx + 1}` : "Intro";
     el.textContent = `Scene ${pos.scene_idx + 1} — ${step}`;
+  }
+  const rmEl = container.querySelector<HTMLElement>("#reduced-indicator");
+  if (rmEl) {
+    rmEl.textContent = isReducedMode ? "⚡ Reduced" : "";
   }
 }
 
@@ -222,11 +332,14 @@ function buildPresenterHtml(): string {
         <div class="preflight-ready">🔍 Running preflight…</div>
       </div>
       <div id="position-indicator" class="position-indicator"></div>
+      <div id="reduced-indicator" class="reduced-indicator"></div>
       <div class="presenter-hints">
         <span>← → Navigate</span>
         <span>B Black screen</span>
         <span>F Fullscreen</span>
         <span>R Restart scene</span>
+        <span>N Notes view</span>
+        <span>P Reduced mode</span>
       </div>
     </div>
     <style>
@@ -256,6 +369,11 @@ function buildPresenterHtml(): string {
         font-family: system-ui, sans-serif; font-size: 12px;
         color: rgba(255,255,255,0.35); pointer-events: none; z-index: 10;
       }
+      .reduced-indicator {
+        position: absolute; bottom: 16px; right: 160px;
+        font-family: system-ui, sans-serif; font-size: 11px;
+        color: rgba(255,200,0,0.6); pointer-events: none; z-index: 10;
+      }
       .presenter-hints {
         position: absolute; bottom: 16px; left: 20px;
         display: flex; gap: 16px;
@@ -265,3 +383,4 @@ function buildPresenterHtml(): string {
     </style>
   `;
 }
+

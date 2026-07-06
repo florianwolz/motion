@@ -67,6 +67,98 @@ pub enum RenderContent {
     Video {
         uri: String,
     },
+    /// A resolved chart ready for runtime rendering.
+    ///
+    /// The builder resolves inline table data and series colours so the
+    /// renderer never needs to touch token stores or data sources.
+    Chart {
+        /// Chart type — drives which drawing primitive the renderer uses.
+        kind: ChartKind,
+        /// Resolved bar/column data (used when `kind` is `Bar`).
+        bars: Vec<ResolvedBar>,
+        /// Resolved line/area series (used when `kind` is `Line` or `Area`).
+        lines: Vec<ResolvedLineSeries>,
+        /// Optional title string.
+        title: Option<String>,
+        /// Optional subtitle string.
+        subtitle: Option<String>,
+        /// Series IDs currently highlighted via presentation overlay.
+        highlighted_series: Vec<String>,
+    },
+}
+
+/// Chart type — mirrors `motion_core::node::ChartKind` but is standalone so
+/// the render crate does not re-export core internals.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChartKind {
+    Bar,
+    Line,
+    Area,
+    Scatter,
+    Histogram,
+    Waterfall,
+    Heatmap,
+    Timeline,
+    Combo,
+    StackedBar,
+    StackedArea,
+    Lollipop,
+    Pareto,
+    Funnel,
+    Bullet,
+    Waffle,
+    Table,
+    Matrix,
+    KpiCard,
+    Gantt,
+    Sparkline,
+    Sankey,
+    Treemap,
+    Sunburst,
+    Chord,
+    Alluvial,
+    Network,
+    RadialTree,
+    Dendrogram,
+    Box,
+    Violin,
+    Ridgeline,
+    Density,
+    ParallelCoordinates,
+    Hexbin,
+    Contour,
+    ErrorBar,
+    Candlestick,
+    Ohlc,
+    WindRose,
+    Ternary,
+}
+
+/// A single resolved bar/column with its display value and colour.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolvedBar {
+    /// Bar label (from the x-field column of the first row).
+    pub label: String,
+    /// Normalised height in [0, 1] relative to the maximum value.
+    pub value_norm: f32,
+    /// Absolute numeric value (for axis labels).
+    pub value: f64,
+    /// RGBA fill colour resolved from the series colour token.
+    pub color: Color,
+    /// Series identifier — used to match against `highlighted_series`.
+    pub series_id: String,
+}
+
+/// A single resolved line/area series with ordered data points.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolvedLineSeries {
+    pub series_id: String,
+    pub label: String,
+    /// Normalised (x, y) points in [0, 1] × [0, 1] space.
+    pub points: Vec<[f32; 2]>,
+    pub color: Color,
+    pub filled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -7,7 +7,7 @@
 use motion_core::{
     document::Document,
     engine::PresentationOverlay,
-    node::{Color, NodeId, NodeKind},
+    node::{ChartDataSource, ChartKind as CoreChartKind, Color, NodeId, NodeKind},
     scene::SceneId,
     tokens::TokenStore,
 };
@@ -15,7 +15,7 @@ use motion_core::{
 use crate::{
     material::{CardMaterial, GlassMaterial, GlowMaterial, GradientSpec, GradientStop, ResolvedMaterial},
     passes::assign_draw_pass,
-    render_tree::{AnimationFrame, RenderContent, RenderNode, RenderTree, ShapeKind},
+    render_tree::{AnimationFrame, ChartKind, RenderContent, RenderNode, RenderTree, ResolvedBar, ResolvedLineSeries, ShapeKind},
 };
 
 const DEFAULT_DIM_OTHERS_FACTOR: f32 = 0.3;
@@ -308,11 +308,70 @@ impl<'a> RenderTreeBuilder<'a> {
                     .unwrap_or_default();
                 RenderContent::Video { uri }
             }
+            NodeKind::Chart(chart) => {
+                self.build_chart_content(chart, node.id)
+            }
             // Non-renderable node types fall back to a Group placeholder.
-            NodeKind::Chart(_)
-            | NodeKind::Equation(_)
+            NodeKind::Equation(_)
             | NodeKind::Diagram(_)
             | NodeKind::ComponentInstance(_) => RenderContent::Group,
+        }
+    }
+
+    fn build_chart_content(
+        &self,
+        chart: &motion_core::node::ChartNode,
+        node_id: NodeId,
+    ) -> RenderContent {
+        let chart_state = self.overlay.chart_states.get(&node_id);
+        let highlighted: Vec<String> = chart_state
+            .map(|s| s.highlighted_series.iter().cloned().collect())
+            .unwrap_or_default();
+
+        // Resolve title / subtitle.
+        let title = chart
+            .title
+            .as_ref()
+            .and_then(|v| self.tokens.resolve_string(v))
+            .map(str::to_string)
+            .or_else(|| match chart.title.as_ref() {
+                Some(motion_core::node::StyleValue::Literal(s)) => Some(s.clone()),
+                _ => None,
+            });
+        let subtitle = chart
+            .subtitle
+            .as_ref()
+            .and_then(|v| self.tokens.resolve_string(v))
+            .map(str::to_string)
+            .or_else(|| match chart.subtitle.as_ref() {
+                Some(motion_core::node::StyleValue::Literal(s)) => Some(s.clone()),
+                _ => None,
+            });
+
+        let kind = map_chart_kind(&chart.kind);
+
+        // Default palette for up to 8 series — resolved from brand tokens when available.
+        let palette = default_chart_palette(self.tokens);
+
+        match &chart.kind {
+            CoreChartKind::Bar | CoreChartKind::Histogram => {
+                let bars = resolve_bars(chart, &palette, self.tokens);
+                RenderContent::Chart { kind, bars, lines: Vec::new(), title, subtitle, highlighted_series: highlighted }
+            }
+            CoreChartKind::Line | CoreChartKind::Area => {
+                let filled = matches!(chart.kind, CoreChartKind::Area);
+                let lines = resolve_lines(chart, &palette, self.tokens, filled);
+                RenderContent::Chart { kind, bars: Vec::new(), lines, title, subtitle, highlighted_series: highlighted }
+            }
+            _ => {
+                // All other kinds: emit bars if inline data is available, else group.
+                let bars = resolve_bars(chart, &palette, self.tokens);
+                if bars.is_empty() {
+                    RenderContent::Group
+                } else {
+                    RenderContent::Chart { kind, bars, lines: Vec::new(), title, subtitle, highlighted_series: highlighted }
+                }
+            }
         }
     }
 }
@@ -326,6 +385,244 @@ fn map_shape_kind(kind: &motion_core::node::ShapeKind) -> ShapeKind {
         }
         motion_core::node::ShapeKind::Line => ShapeKind::Line,
     }
+}
+
+fn map_chart_kind(kind: &CoreChartKind) -> ChartKind {
+    match kind {
+        CoreChartKind::Bar => ChartKind::Bar,
+        CoreChartKind::Line => ChartKind::Line,
+        CoreChartKind::Area => ChartKind::Area,
+        CoreChartKind::Scatter => ChartKind::Scatter,
+        CoreChartKind::Histogram => ChartKind::Histogram,
+        CoreChartKind::Waterfall => ChartKind::Waterfall,
+        CoreChartKind::Heatmap => ChartKind::Heatmap,
+        CoreChartKind::Timeline => ChartKind::Timeline,
+        CoreChartKind::Combo => ChartKind::Combo,
+        CoreChartKind::StackedBar => ChartKind::StackedBar,
+        CoreChartKind::StackedArea => ChartKind::StackedArea,
+        CoreChartKind::Lollipop => ChartKind::Lollipop,
+        CoreChartKind::Pareto => ChartKind::Pareto,
+        CoreChartKind::Funnel => ChartKind::Funnel,
+        CoreChartKind::Bullet => ChartKind::Bullet,
+        CoreChartKind::Waffle => ChartKind::Waffle,
+        CoreChartKind::Table => ChartKind::Table,
+        CoreChartKind::Matrix => ChartKind::Matrix,
+        CoreChartKind::KpiCard => ChartKind::KpiCard,
+        CoreChartKind::Gantt => ChartKind::Gantt,
+        CoreChartKind::Sparkline => ChartKind::Sparkline,
+        CoreChartKind::Sankey => ChartKind::Sankey,
+        CoreChartKind::Treemap => ChartKind::Treemap,
+        CoreChartKind::Sunburst => ChartKind::Sunburst,
+        CoreChartKind::Chord => ChartKind::Chord,
+        CoreChartKind::Alluvial => ChartKind::Alluvial,
+        CoreChartKind::Network => ChartKind::Network,
+        CoreChartKind::RadialTree => ChartKind::RadialTree,
+        CoreChartKind::Dendrogram => ChartKind::Dendrogram,
+        CoreChartKind::Box => ChartKind::Box,
+        CoreChartKind::Violin => ChartKind::Violin,
+        CoreChartKind::Ridgeline => ChartKind::Ridgeline,
+        CoreChartKind::Density => ChartKind::Density,
+        CoreChartKind::ParallelCoordinates => ChartKind::ParallelCoordinates,
+        CoreChartKind::Hexbin => ChartKind::Hexbin,
+        CoreChartKind::Contour => ChartKind::Contour,
+        CoreChartKind::ErrorBar => ChartKind::ErrorBar,
+        CoreChartKind::Candlestick => ChartKind::Candlestick,
+        CoreChartKind::Ohlc => ChartKind::Ohlc,
+        CoreChartKind::WindRose => ChartKind::WindRose,
+        CoreChartKind::Ternary => ChartKind::Ternary,
+    }
+}
+
+/// Return up to 8 RGBA colours from the brand token palette, falling back to
+/// a built-in set when tokens are absent.
+fn default_chart_palette(tokens: &TokenStore) -> Vec<Color> {
+    let token_paths = [
+        "color.chart.positive",
+        "color.chart.warning",
+        "color.chart.neutral",
+        "color.chart.best",
+        "color.brand",
+        "color.brand.alt",
+    ];
+    let built_in: [Color; 6] = [
+        Color { r: 0.0, g: 0.745, b: 0.863, a: 1.0 }, // #00BEDC
+        Color { r: 0.925, g: 0.4, b: 0.008, a: 1.0 },  // #EC6602
+        Color { r: 0.486, g: 0.553, b: 0.651, a: 1.0 }, // #7C8DA6
+        Color { r: 0.239, g: 0.863, b: 0.592, a: 1.0 }, // #3DDC97
+        Color { r: 0.925, g: 0.4, b: 0.008, a: 1.0 },  // #EC6602 (brand)
+        Color { r: 0.0, g: 0.745, b: 0.863, a: 1.0 },  // #00BEDC (brand alt)
+    ];
+    token_paths
+        .iter()
+        .zip(built_in.iter())
+        .map(|(path, fallback)| {
+            tokens
+                .resolve(path, 4)
+                .and_then(|v| v.as_str().and_then(motion_core::tokens::parse_hex_color))
+                .unwrap_or_else(|| fallback.clone())
+        })
+        .collect()
+}
+
+/// Resolve inline table data from a chart into a list of [`ResolvedBar`]s.
+///
+/// Uses the first series that has a `y_field`; falls back to the first
+/// numeric column if no series spec is present.  Returns an empty vec when
+/// no usable data is found.
+fn resolve_bars(
+    chart: &motion_core::node::ChartNode,
+    palette: &[Color],
+    _tokens: &TokenStore,
+) -> Vec<ResolvedBar> {
+    let table = match &chart.data_source {
+        ChartDataSource::Inline { table } => table,
+        ChartDataSource::Asset { .. } => return Vec::new(),
+    };
+    if table.columns.is_empty() || table.rows.is_empty() {
+        return Vec::new();
+    }
+
+    // Find label column (x-field) and value column (y-field).
+    let x_col_idx = chart
+        .series
+        .first()
+        .and_then(|s| s.x_field.as_deref())
+        .and_then(|xf| table.columns.iter().position(|c| c.key == xf))
+        .unwrap_or(0);
+    let y_col_idx = chart
+        .series
+        .first()
+        .and_then(|s| s.y_field.as_deref())
+        .and_then(|yf| table.columns.iter().position(|c| c.key == yf))
+        .or_else(|| {
+            // Fall back to first numeric-looking column that is not the x column.
+            table.columns.iter().position(|c| {
+                matches!(
+                    c.data_type,
+                    motion_core::node::ChartValueType::Number
+                )
+            })
+        })
+        .unwrap_or(1.min(table.columns.len().saturating_sub(1)));
+
+    // Collect raw values.
+    let raw_values: Vec<(String, f64)> = table
+        .rows
+        .iter()
+        .map(|row| {
+            let label = row
+                .values
+                .get(x_col_idx)
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .or_else(|| {
+                    row.values.get(x_col_idx).map(|v| v.to_string())
+                })
+                .unwrap_or_default();
+            let value = row
+                .values
+                .get(y_col_idx)
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            (label, value)
+        })
+        .collect();
+
+    let max_val = raw_values
+        .iter()
+        .map(|(_, v)| *v)
+        .fold(f64::MIN, f64::max)
+        .max(1.0);
+
+    raw_values
+        .into_iter()
+        .enumerate()
+        .map(|(i, (label, value))| {
+            let series = chart
+                .series
+                .get(i)
+                .map(|s| s.id.clone())
+                .unwrap_or_else(|| format!("series-{i}"));
+            let color = palette.get(i % palette.len()).cloned().unwrap_or(Color::WHITE);
+            ResolvedBar {
+                label,
+                value_norm: (value / max_val) as f32,
+                value,
+                color,
+                series_id: series,
+            }
+        })
+        .collect()
+}
+
+/// Resolve inline table data into line/area series.
+fn resolve_lines(
+    chart: &motion_core::node::ChartNode,
+    palette: &[Color],
+    _tokens: &TokenStore,
+    filled: bool,
+) -> Vec<ResolvedLineSeries> {
+    let table = match &chart.data_source {
+        ChartDataSource::Inline { table } => table,
+        ChartDataSource::Asset { .. } => return Vec::new(),
+    };
+    if table.columns.is_empty() || table.rows.is_empty() {
+        return Vec::new();
+    }
+
+    // One series per spec; default to a single series using col 0 (x) + col 1 (y).
+    let specs: Vec<(String, String, usize, usize)> = if chart.series.is_empty() {
+        vec![("series-0".to_string(), "Series 1".to_string(), 0, 1.min(table.columns.len().saturating_sub(1)))]
+    } else {
+        chart
+            .series
+            .iter()
+            .map(|s| {
+                let xi = s
+                    .x_field
+                    .as_deref()
+                    .and_then(|f| table.columns.iter().position(|c| c.key == f))
+                    .unwrap_or(0);
+                let yi = s
+                    .y_field
+                    .as_deref()
+                    .and_then(|f| table.columns.iter().position(|c| c.key == f))
+                    .unwrap_or(1.min(table.columns.len().saturating_sub(1)));
+                (s.id.clone(), s.label.clone().unwrap_or_else(|| s.id.clone()), xi, yi)
+            })
+            .collect()
+    };
+
+    specs
+        .into_iter()
+        .enumerate()
+        .map(|(si, (id, label, xi, yi))| {
+            let raw: Vec<(f64, f64)> = table
+                .rows
+                .iter()
+                .map(|row| {
+                    let x = row.values.get(xi).and_then(|v| v.as_f64()).unwrap_or(si as f64);
+                    let y = row.values.get(yi).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    (x, y)
+                })
+                .collect();
+            let x_min = raw.iter().map(|(x, _)| *x).fold(f64::MAX, f64::min);
+            let x_max = raw.iter().map(|(x, _)| *x).fold(f64::MIN, f64::max).max(x_min + 1.0);
+            let y_min = 0.0_f64;
+            let y_max = raw.iter().map(|(_, y)| *y).fold(f64::MIN, f64::max).max(1.0);
+            let points = raw
+                .into_iter()
+                .map(|(x, y)| {
+                    [
+                        ((x - x_min) / (x_max - x_min)) as f32,
+                        ((y - y_min) / (y_max - y_min)) as f32,
+                    ]
+                })
+                .collect();
+            let color = palette.get(si % palette.len()).cloned().unwrap_or(Color::WHITE);
+            ResolvedLineSeries { series_id: id, label, points, color, filled }
+        })
+        .collect()
 }
 
 // ------------------------------------------------------------------

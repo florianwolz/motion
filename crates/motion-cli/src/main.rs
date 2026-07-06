@@ -5,6 +5,7 @@ use std::{fmt::Write as _, fs, path::PathBuf};
 use clap::{Parser, Subcommand};
 use motion_core::{
     brand::build_brand_package,
+    bundle::DeckBundle,
     document::Document,
     node::{Color, Node, NodeId, NodeKind, StyleValue, Transform},
     preflight::run_document_preflight,
@@ -57,6 +58,16 @@ enum Commands {
         dir: String,
 
         /// Output path for the compiled brand package.
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+    /// Compile a presentation document into a runtime deck bundle (.motiondeck).
+    Compile {
+        /// Path to the source document JSON file.
+        #[arg(value_name = "FILE")]
+        file: String,
+
+        /// Output path for the compiled deck bundle.
         #[arg(short, long)]
         output: Option<String>,
     },
@@ -131,6 +142,30 @@ fn run(cli: Cli) -> Result<(), String> {
                 token_section_label,
                 package.assets.len(),
                 asset_label
+            );
+            Ok(())
+        }
+        Commands::Compile { file, output } => {
+            let out = output.unwrap_or_else(|| {
+                let stem = PathBuf::from(&file)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("deck")
+                    .to_string();
+                format!("{stem}.motiondeck")
+            });
+            let document = load_document(&file)?;
+            let scene_count = document.scenes.len();
+            let total_steps: usize = document.scenes.iter().map(|s| s.steps.len()).sum();
+            let bundle = DeckBundle::compile(document);
+            let serialized = serde_json::to_string_pretty(&bundle)
+                .map_err(|error| format!("failed to serialize deck bundle: {error}"))?;
+            fs::write(&out, serialized)
+                .map_err(|error| format!("failed to write {out}: {error}"))?;
+            let step_label = if total_steps == 1 { "step" } else { "steps" };
+            let scene_label = if scene_count == 1 { "scene" } else { "scenes" };
+            println!(
+                "Compiled {file} → {out} ({scene_count} {scene_label}, {total_steps} {step_label})"
             );
             Ok(())
         }

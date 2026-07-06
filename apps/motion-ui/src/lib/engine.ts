@@ -39,6 +39,9 @@ export function createEngine() {
 export interface EngineHandle {
   loadDocument(documentJson: string): void;
   loadBrandPackage(packageJson: string): void;
+  loadDeckBundle(bundleJson: string): void;
+  getBundleManifest(): string;
+  getPresenterState(): string;
   setViewport(width: number, height: number, scale: number): void;
   /** Returns the current scene's render tree as a JSON string. */
   render(timestamp: number): string;
@@ -104,5 +107,54 @@ export function parseInspector(json: string): InspectorData {
     return JSON.parse(json) as InspectorData;
   } catch {
     return { scene_id: null, selected: null };
+  }
+}
+
+export interface PresenterState {
+  scene_idx: number;
+  step_idx: number | null;
+  scene_name: string;
+  scene_notes: string;
+  scene_count: number;
+  step_name: string;
+  step_notes: string;
+  step_count: number;
+  next_label: string;
+}
+
+export function parsePresenterState(json: string): PresenterState {
+  try {
+    return JSON.parse(json) as PresenterState;
+  } catch {
+    return {
+      scene_idx: 0,
+      step_idx: null,
+      scene_name: "",
+      scene_notes: "",
+      scene_count: 0,
+      step_name: "",
+      step_notes: "",
+      step_count: 0,
+      next_label: "",
+    };
+  }
+}
+
+export interface DeckManifest {
+  format_version: string;
+  engine_version: string;
+  title: string;
+  scene_count: number;
+  total_steps: number;
+  has_notes: boolean;
+  asset_count: number;
+  compiled_at: string;
+}
+
+export function parseBundleManifest(json: string): DeckManifest | null {
+  try {
+    return JSON.parse(json) as DeckManifest;
+  } catch {
+    return null;
   }
 }

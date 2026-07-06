@@ -8,6 +8,7 @@ use motion_core::{
         build_enter_tracks, build_exit_tracks, AnimationTrack, DEFAULT_ANIMATION_DURATION_MS,
     },
     brand::load_brand_package as load_brand_package_into_document,
+    bundle::DeckBundle,
     command::Command,
     document::Document,
     engine::DocumentEngine,
@@ -106,6 +107,49 @@ impl MotionEngine {
     pub fn load_brand_package(&mut self, package_json: &str) -> Result<(), JsValue> {
         load_brand_package_into_document(self.inner.document_mut(), package_json)
             .map_err(|error| JsValue::from_str(&error))
+    }
+
+    /// Load a compiled deck bundle (`.motiondeck` JSON string).
+    ///
+    /// Extracts the embedded document from the bundle and loads it just like
+    /// [`load_document`].  The manifest and capability hints are available via
+    /// [`get_bundle_manifest`] after loading.
+    #[wasm_bindgen(js_name = loadDeckBundle)]
+    pub fn load_deck_bundle(&mut self, bundle_json: &str) -> Result<(), JsValue> {
+        let bundle: DeckBundle = serde_json::from_str(bundle_json)
+            .map_err(|e| JsValue::from_str(&format!("invalid deck bundle: {e}")))?;
+        self.inner = DocumentEngine::new(bundle.document);
+        self.selection = None;
+        self.interaction = None;
+        self.active_tracks.clear();
+        self.animation_start_ms = None;
+        Ok(())
+    }
+
+    /// Return the bundle manifest as a JSON string, or an empty object if no
+    /// bundle has been loaded.
+    ///
+    /// The manifest contains static metadata (title, scene count, etc.)
+    /// compiled into the bundle at compile time.
+    #[wasm_bindgen(js_name = getBundleManifest)]
+    pub fn get_bundle_manifest(&self) -> String {
+        // Reconstruct a minimal manifest from the current document.
+        let doc = self.inner.document();
+        let total_steps: usize = doc.scenes.iter().map(|s| s.steps.len()).sum();
+        let has_notes = doc.scenes.iter().any(|s| {
+            s.notes.is_some() || s.steps.iter().any(|step| step.notes.is_some())
+        });
+        let manifest = motion_core::bundle::DeckManifest {
+            format_version: motion_core::bundle::BUNDLE_FORMAT_VERSION.to_string(),
+            engine_version: env!("CARGO_PKG_VERSION").to_string(),
+            title: doc.metadata.title.clone(),
+            scene_count: doc.scenes.len(),
+            total_steps,
+            has_notes,
+            asset_count: doc.assets.assets.len(),
+            compiled_at: String::new(),
+        };
+        serde_json::to_string(&manifest).unwrap_or_else(|_| "{}".to_string())
     }
 
     /// Update the canvas viewport dimensions.
@@ -478,6 +522,62 @@ impl MotionEngine {
             })
             .collect();
         serde_json::to_string(&scenes).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// Return rich presenter state as a JSON object.
+    ///
+    /// Includes: current position, scene name, step notes, scene notes, next
+    /// step/scene preview — everything a second-tab presenter view needs.
+    #[wasm_bindgen(js_name = getPresenterState)]
+    pub fn get_presenter_state(&self) -> String {
+        let doc = self.inner.document();
+        let (scene_idx, step_idx) = self.inner.position();
+
+        let current_scene = doc.scenes.get(scene_idx);
+        let scene_name = current_scene.map(|s| s.name.as_str()).unwrap_or("");
+        let scene_notes = current_scene.and_then(|s| s.notes.as_deref()).unwrap_or("");
+        let scene_count = doc.scenes.len();
+
+        // Current step notes.
+        let current_step = step_idx.and_then(|si| {
+            current_scene.and_then(|s| s.steps.get(si))
+        });
+        let step_name = current_step.map(|st| st.name.as_str()).unwrap_or("");
+        let step_notes = current_step.and_then(|st| st.notes.as_deref()).unwrap_or("");
+        let step_count = current_scene.map(|s| s.steps.len()).unwrap_or(0);
+
+        // Next step name (or next scene name if on last step).
+        let next_label = if let (Some(si), Some(scene)) = (step_idx, current_scene) {
+            if si + 1 < scene.steps.len() {
+                scene.steps.get(si + 1).map(|st| st.name.as_str()).unwrap_or("").to_string()
+            } else {
+                doc.scenes.get(scene_idx + 1)
+                    .map(|ns| format!("→ {}", ns.name))
+                    .unwrap_or_else(|| "End of presentation".to_string())
+            }
+        } else if let Some(scene) = current_scene {
+            scene.steps.first().map(|st| st.name.clone())
+                .unwrap_or_else(|| {
+                    doc.scenes.get(scene_idx + 1)
+                        .map(|ns| format!("→ {}", ns.name))
+                        .unwrap_or_else(|| "End of presentation".to_string())
+                })
+        } else {
+            String::new()
+        };
+
+        json!({
+            "scene_idx": scene_idx,
+            "step_idx": step_idx,
+            "scene_name": scene_name,
+            "scene_notes": scene_notes,
+            "scene_count": scene_count,
+            "step_name": step_name,
+            "step_notes": step_notes,
+            "step_count": step_count,
+            "next_label": next_label,
+        })
+        .to_string()
     }
 }
 
