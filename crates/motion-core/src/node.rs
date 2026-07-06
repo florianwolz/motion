@@ -506,7 +506,7 @@ pub struct ChartParityTargets {
 
 impl Default for ChartValueType {
     fn default() -> Self {
-        Self::Json
+        Self::String
     }
 }
 
