@@ -87,6 +87,7 @@ impl<'a> RenderTreeBuilder<'a> {
                 content: RenderContent::Group,
                 material: None,
                 blur_radius: 0.0,
+                motion_blur_strength: 0.0,
                 clip: false,
                 draw_pass: crate::passes::DrawPass::Shape,
             });
@@ -138,6 +139,7 @@ impl<'a> RenderTreeBuilder<'a> {
             blur_radius,
             clip,
             draw_pass,
+            motion_blur_strength: 0.0,
         });
 
         // Recurse into children.

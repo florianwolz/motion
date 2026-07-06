@@ -15,7 +15,8 @@ import {
 } from "../lib/engine.js";
 import { isSupportedSavedDocument } from "../lib/documentState.js";
 import type { EngineHandle } from "../lib/engine.js";
-import { Canvas2DRenderer } from "../lib/renderer.js";
+import { createRenderer, detectRenderTier } from "../lib/renderer.js";
+import type { Renderer } from "../lib/renderer.js";
 import { buildDemoDocumentJson } from "./demo.js";
 
 const AUTOSAVE_KEY = "motion-current-doc";
@@ -30,7 +31,7 @@ const DEFAULT_STAGGER_MS = 60;
 const DEFAULT_CAMERA_FOCUS_ZOOM = 1.25;
 
 let engine: EngineHandle | null = null;
-let renderer: Canvas2DRenderer | null = null;
+let renderer: Renderer | null = null;
 let autosaveTimer: number | null = null;
 let timelinePreviewTimer: number | null = null;
 let beforeUnloadRegistered = false;
@@ -44,7 +45,7 @@ export async function mountEditor(container: HTMLElement): Promise<void> {
 
   const canvasEl = container.querySelector<HTMLCanvasElement>("#editor-canvas")!;
   canvasEl.style.touchAction = "none";
-  renderer = new Canvas2DRenderer(canvasEl);
+  renderer = await createRenderer(detectRenderTier(), canvasEl);
   currentZoom = 1;
   applyCanvasZoom(container);
 
