@@ -40,6 +40,12 @@ pub struct RenderNode {
     pub clip: bool,
     /// Which render pass this node belongs to. Assigned by [`crate::passes::assign_draw_pass`].
     pub draw_pass: DrawPass,
+    /// Motion blur strength in `[0, 1]`.  `0.0` = disabled, `1.0` = full shutter.
+    ///
+    /// Set by the presentation engine based on the node's animation velocity.
+    /// The GPU renderer uses this to drive per-object motion blur accumulation.
+    #[serde(default)]
+    pub motion_blur_strength: f32,
 }
 
 /// The concrete drawable content of a render node.
@@ -238,6 +244,7 @@ mod tests {
             blur_radius: 0.0,
             clip: false,
             draw_pass: DrawPass::Shape,
+            motion_blur_strength: 0.0,
         }
     }
 
@@ -259,6 +266,7 @@ mod tests {
             blur_radius: 0.0,
             clip: false,
             draw_pass: DrawPass::Text,
+            motion_blur_strength: 0.0,
         }
     }
 
@@ -282,6 +290,7 @@ mod tests {
             blur_radius: 0.0,
             clip: false,
             draw_pass: DrawPass::Glass,
+            motion_blur_strength: 0.0,
         }
     }
 

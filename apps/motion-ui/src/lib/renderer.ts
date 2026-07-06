@@ -101,7 +101,7 @@ export interface ResolvedLineSeries {
 export type ResolvedMaterial =
   | { type: "solid"; color: RgbaColor }
   | { type: "gradient"; kind: unknown; stops: Array<{ offset: number; color: RgbaColor }> }
-  | { type: "glass"; tint: RgbaColor; opacity: number; blur_radius: number }
+  | { type: "glass"; tint: RgbaColor; opacity: number; blur_radius: number; saturation: number; noise_strength: number }
   | { type: "matte_card"; background: RgbaColor; corner_radius: number; shadow_color: RgbaColor; shadow_blur: number; shadow_offset_y: number }
   | { type: "glow"; color: RgbaColor; radius: number; intensity: number };
 
@@ -134,6 +134,8 @@ export interface RenderNode {
   clip: boolean;
   /** Render pass assigned by the Rust engine. Used to order draw calls correctly. */
   draw_pass: DrawPass;
+  /** Motion blur strength in [0, 1]. 0 = disabled, 1 = full shutter. */
+  motion_blur_strength: number;
 }
 
 export interface RenderTree {
@@ -240,9 +242,66 @@ function loadImage(uri: string): HTMLImageElement | null {
   return img;
 }
 
+// ─── Renderer interface ───────────────────────────────────────────────────────
+
+/**
+ * Common interface implemented by all renderer tiers.
+ * The `createRenderer` factory returns this type, allowing the rest of the
+ * app to be tier-agnostic.
+ */
+export interface Renderer {
+  /** Draw the resolved scene described by `tree`. Called once per animation frame. */
+  draw(tree: RenderTree): void;
+  /** Resize the backing render targets to match a new CSS viewport size. */
+  resize(cssWidth: number, cssHeight: number, dpr?: number): void;
+  /** Release all GPU resources held by the renderer. */
+  destroy(): void;
+}
+
+/**
+ * Configuration for `createRenderer`.
+ */
+export interface RendererOptions {
+  /** Motion blur strength in [0, 1]. 0 disables motion blur. Default: 0. */
+  motionBlurStrength?: number;
+  /** Number of motion-blur accumulation sub-samples (1–8). Default: 4. */
+  motionBlurSamples?: number;
+}
+
+/**
+ * Create the best available renderer for the current browser.
+ *
+ * Tries WebGPU (Tier 1) → WebGL2 (Tier 2) → Canvas2D (Tier 3).
+ * On init failure at a given tier it automatically falls back to the next.
+ */
+export async function createRenderer(
+  tier: RenderTier,
+  canvas: HTMLCanvasElement,
+  options?: RendererOptions,
+): Promise<Renderer> {
+  if (tier === "web_gpu") {
+    try {
+      const { WebGpuRenderer } = await import("./renderer-webgpu.js");
+      return await WebGpuRenderer.create(canvas, options);
+    } catch (e) {
+      console.warn("[motion] WebGPU init failed, falling back to WebGL2:", e);
+      tier = "web_gl2";
+    }
+  }
+  if (tier === "web_gl2") {
+    try {
+      const { WebGl2Renderer } = await import("./renderer-webgl2.js");
+      return new WebGl2Renderer(canvas);
+    } catch (e) {
+      console.warn("[motion] WebGL2 init failed, falling back to Canvas2D:", e);
+    }
+  }
+  return new Canvas2DRenderer(canvas);
+}
+
 // ─── Canvas2DRenderer ─────────────────────────────────────────────────────────
 
-export class Canvas2DRenderer {
+export class Canvas2DRenderer implements Renderer {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
 
@@ -744,5 +803,10 @@ export class Canvas2DRenderer {
       case "glow": return mat.color;
       default: return null;
     }
+  }
+
+  /** No GPU resources to release; no-op to satisfy the Renderer interface. */
+  destroy(): void {
+    // Nothing to release for the Canvas2D renderer.
   }
 }
