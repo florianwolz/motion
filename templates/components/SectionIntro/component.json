@@ -1,0 +1,13 @@
+{
+  "id": "SectionIntro",
+  "version": "1.0.0",
+  "displayName": "Section Intro",
+  "category": "structure",
+  "requiredInputs": ["section"],
+  "optionalInputs": ["kicker", "context"],
+  "semanticSlots": ["section_label", "headline", "context"],
+  "defaultSteps": ["reveal_section", "reveal_context"],
+  "tokenBindings": ["color.brand.alt", "typography.title.size", "motion.duration.normal"],
+  "modeBehavior": {"projector": "larger_type", "pdf": "single_reveal"},
+  "preview": {"title": "Architecture", "subtitle": "How the runtime and editor integrate", "thumbnail": "section-intro"}
+}

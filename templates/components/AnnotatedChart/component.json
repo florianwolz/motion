@@ -1,0 +1,13 @@
+{
+  "id": "AnnotatedChart",
+  "version": "1.0.0",
+  "displayName": "Annotated Chart",
+  "category": "data",
+  "requiredInputs": ["title", "annotation"],
+  "optionalInputs": ["subtitle", "takeaway"],
+  "semanticSlots": ["title", "chart", "annotation", "takeaway"],
+  "defaultSteps": ["reveal_chart", "draw_attention", "reveal_takeaway"],
+  "tokenBindings": ["color.chart.neutral", "color.chart.best", "typography.caption.size", "motion.duration.normal"],
+  "modeBehavior": {"technical": "show_grid", "pdf": "annotation_callout_static"},
+  "preview": {"title": "Signal trend", "subtitle": "Key inflection highlighted", "thumbnail": "annotated-chart"}
+}

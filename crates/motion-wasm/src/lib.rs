@@ -15,6 +15,7 @@ use motion_core::{
     node::{NodeId, NodeKind, StyleValue, Transform},
     preflight::run_document_preflight,
     scene::{PresentationCommand, SceneId},
+    templates::{catalog as template_catalog, find_template},
 };
 use motion_render::{AnimationFrame, RenderTreeBuilder};
 use serde_json::json;
@@ -107,6 +108,113 @@ impl MotionEngine {
     pub fn load_brand_package(&mut self, package_json: &str) -> Result<(), JsValue> {
         load_brand_package_into_document(self.inner.document_mut(), package_json)
             .map_err(|error| JsValue::from_str(&error))
+    }
+
+    /// List template contracts available to the current document.
+    #[wasm_bindgen(js_name = listTemplates)]
+    pub fn list_templates(&self) -> String {
+        let templates = if self.inner.document().components.components.is_empty() {
+            template_catalog()
+        } else {
+            let available = self
+                .inner
+                .document()
+                .components
+                .components
+                .keys()
+                .cloned()
+                .collect::<std::collections::HashSet<_>>();
+            template_catalog()
+                .into_iter()
+                .filter(|template| available.contains(&template.contract.id))
+                .collect()
+        };
+        serde_json::to_string(&templates).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// Return preview metadata for a specific template.
+    #[wasm_bindgen(js_name = getTemplatePreview)]
+    pub fn get_template_preview(&self, template_id: &str) -> String {
+        find_template(template_id)
+            .map(|definition| serde_json::to_string(&definition.contract.preview).unwrap_or_else(|_| "{}".to_string()))
+            .unwrap_or_else(|| "null".to_string())
+    }
+
+    /// Apply a template to a scene and return the instance node id.
+    #[wasm_bindgen(js_name = applyTemplate)]
+    pub fn apply_template(
+        &mut self,
+        scene_id: &str,
+        template_id: &str,
+        properties_json: &str,
+    ) -> Result<String, JsValue> {
+        let existing_instance_ids = self
+            .inner
+            .document()
+            .nodes
+            .values()
+            .filter_map(|node| match &node.data {
+                NodeKind::ComponentInstance(component) if component.component_id == template_id => Some(node.id),
+                _ => None,
+            })
+            .collect::<std::collections::HashSet<_>>();
+        let scene_id = parse_scene_id(scene_id)?;
+        let properties: serde_json::Value = serde_json::from_str(properties_json)
+            .map_err(|error| JsValue::from_str(&format!("invalid template properties: {error}")))?;
+        let command = Command::ApplyTemplate(motion_core::command::ApplyTemplateCommand {
+            scene_id,
+            template_id: template_id.to_string(),
+            properties,
+            instance_node_id: None,
+        });
+        self.inner
+            .apply_command(command)
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+
+        let new_instances = self
+            .inner
+            .document()
+            .nodes
+            .values()
+            .filter_map(|node| match &node.data {
+                NodeKind::ComponentInstance(component)
+                    if component.component_id == template_id && !existing_instance_ids.contains(&node.id) =>
+                {
+                    Some(node.id)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if new_instances.len() != 1 {
+            return Err(JsValue::from_str(
+                "template applied but instance identification was ambiguous",
+            ));
+        }
+        Ok(new_instances[0].0.to_string())
+    }
+
+    /// Update an existing template instance with new properties.
+    #[wasm_bindgen(js_name = updateTemplateInstance)]
+    pub fn update_template_instance(
+        &mut self,
+        scene_id: &str,
+        instance_node_id: &str,
+        template_id: &str,
+        properties_json: &str,
+    ) -> Result<(), JsValue> {
+        let scene_id = parse_scene_id(scene_id)?;
+        let instance_node_id = parse_node_id(instance_node_id)?;
+        let properties: serde_json::Value = serde_json::from_str(properties_json)
+            .map_err(|error| JsValue::from_str(&format!("invalid template properties: {error}")))?;
+        let command = Command::ApplyTemplate(motion_core::command::ApplyTemplateCommand {
+            scene_id,
+            template_id: template_id.to_string(),
+            properties,
+            instance_node_id: Some(instance_node_id),
+        });
+        self.inner
+            .apply_command(command)
+            .map_err(|error| JsValue::from_str(&error.to_string()))
     }
 
     /// Load a compiled deck bundle (`.motiondeck` JSON string).
@@ -761,6 +869,18 @@ fn node_kind_name(kind: &NodeKind) -> &'static str {
         NodeKind::Diagram(_) => "diagram",
         NodeKind::ComponentInstance(_) => "component_instance",
     }
+}
+
+fn parse_scene_id(raw: &str) -> Result<SceneId, JsValue> {
+    raw.parse::<uuid::Uuid>()
+        .map(SceneId)
+        .map_err(|error| JsValue::from_str(&format!("invalid scene id: {error}")))
+}
+
+fn parse_node_id(raw: &str) -> Result<NodeId, JsValue> {
+    raw.parse::<uuid::Uuid>()
+        .map(NodeId)
+        .map_err(|error| JsValue::from_str(&format!("invalid node id: {error}")))
 }
 
 fn style_value_to_string(value: Option<&StyleValue<String>>) -> Option<String> {

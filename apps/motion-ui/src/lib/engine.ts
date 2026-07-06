@@ -39,6 +39,10 @@ export function createEngine() {
 export interface EngineHandle {
   loadDocument(documentJson: string): void;
   loadBrandPackage(packageJson: string): void;
+  listTemplates(): string;
+  getTemplatePreview(templateId: string): string;
+  applyTemplate(sceneId: string, templateId: string, propertiesJson: string): string;
+  updateTemplateInstance(sceneId: string, instanceNodeId: string, templateId: string, propertiesJson: string): void;
   loadDeckBundle(bundleJson: string): void;
   getBundleManifest(): string;
   getPresenterState(): string;
@@ -151,10 +155,44 @@ export interface DeckManifest {
   compiled_at: string;
 }
 
+export interface TemplateContract {
+  id: string;
+  version: string;
+  displayName: string;
+  category: string;
+  requiredInputs: string[];
+  optionalInputs: string[];
+  semanticSlots: string[];
+  defaultSteps: string[];
+  tokenBindings: string[];
+  /** Mode overrides keyed by mode name (e.g. teams, pdf, projector, executive, technical). */
+  modeBehavior: Record<string, string>;
+  preview: {
+    title: string;
+    subtitle: string;
+    thumbnail: string;
+  };
+}
+
+export interface TemplateDefinition {
+  schemaVersion: string;
+  engineCompatibility: string;
+  contract: TemplateContract;
+}
+
 export function parseBundleManifest(json: string): DeckManifest | null {
   try {
     return JSON.parse(json) as DeckManifest;
   } catch {
     return null;
+  }
+}
+
+export function parseTemplateCatalog(json: string): TemplateDefinition[] {
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? (parsed as TemplateDefinition[]) : [];
+  } catch {
+    return [];
   }
 }

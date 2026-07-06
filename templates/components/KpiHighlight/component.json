@@ -1,0 +1,13 @@
+{
+  "id": "KpiHighlight",
+  "version": "1.0.0",
+  "displayName": "KPI Highlight",
+  "category": "data",
+  "requiredInputs": ["title", "value"],
+  "optionalInputs": ["delta", "footnote"],
+  "semanticSlots": ["title", "value", "delta", "context"],
+  "defaultSteps": ["reveal_kpi", "highlight_delta"],
+  "tokenBindings": ["color.chart.positive", "color.chart.warning", "typography.display.size", "motion.duration.normal"],
+  "modeBehavior": {"executive": "larger_value", "pdf": "delta_inline"},
+  "preview": {"title": "On-time delivery", "subtitle": "+12% vs previous quarter", "thumbnail": "kpi-highlight"}
+}

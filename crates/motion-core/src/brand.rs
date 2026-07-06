@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     document::{Asset, AssetId, AssetKind, BrandBinding, Document},
+    templates::{default_component_payloads, TEMPLATE_ENGINE_COMPATIBILITY, TEMPLATE_SCHEMA_VERSION},
     tokens::{TokenRef, TokenValue},
 };
 
@@ -61,6 +62,10 @@ pub struct BrandPackage {
     pub tokens: Value,
     #[serde(default)]
     pub assets: Vec<BrandPackageAsset>,
+    #[serde(default, rename = "templateSchemaVersion")]
+    pub template_schema_version: Option<String>,
+    #[serde(default)]
+    pub components: std::collections::HashMap<String, Value>,
 }
 
 pub fn build_brand_package(dir: &Path) -> Result<BrandPackage, String> {
@@ -88,10 +93,24 @@ pub fn build_brand_package(dir: &Path) -> Result<BrandPackage, String> {
     assets.extend(collect_directory_assets(dir, "logos", AssetKind::Image)?);
     assets.extend(collect_directory_assets(dir, "icons", AssetKind::Icon)?);
 
+    let mut component_payloads = std::collections::HashMap::new();
+    for component_id in &manifest.components {
+        let component_json = normalize_component_payload(load_component_definition(dir, component_id)?);
+        component_payloads.insert(component_id.clone(), component_json);
+    }
+
+    if component_payloads.is_empty() {
+        for (id, payload) in default_component_payloads() {
+            component_payloads.insert(id, payload);
+        }
+    }
+
     Ok(BrandPackage {
         manifest,
         tokens,
         assets,
+        template_schema_version: Some(TEMPLATE_SCHEMA_VERSION.to_string()),
+        components: component_payloads,
     })
 }
 
@@ -127,6 +146,15 @@ pub fn verify_asset_hash(asset: &Asset) -> bool {
 }
 
 fn apply_brand_package(document: &mut Document, package: BrandPackage) -> Result<(), String> {
+    if let Some(schema_version) = &package.template_schema_version {
+        if !is_compatible_template_schema(schema_version, TEMPLATE_SCHEMA_VERSION) {
+            return Err(format!(
+                "template schema version mismatch: package={}, engine={}",
+                schema_version, TEMPLATE_SCHEMA_VERSION
+            ));
+        }
+    }
+
     document.brand = Some(BrandBinding {
         name: package.manifest.name.clone(),
         version: package.manifest.version.clone(),
@@ -156,6 +184,11 @@ fn apply_brand_package(document: &mut Document, package: BrandPackage) -> Result
                 name: asset.name,
             });
         }
+    }
+
+    document.components.schema_version = package.template_schema_version;
+    for (component_id, payload) in package.components {
+        document.components.components.insert(component_id, payload);
     }
 
     Ok(())
@@ -341,6 +374,67 @@ fn normalize_path(path: &str) -> String {
     path.replace('\\', "/")
 }
 
+fn load_component_definition(base_dir: &Path, component_id: &str) -> Result<Value, String> {
+    let local_component = base_dir
+        .join("components")
+        .join(component_id)
+        .join("component.json");
+    if local_component.exists() {
+        return read_json_file(&local_component);
+    }
+
+    let workspace_component = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../templates/components")
+        .join(component_id)
+        .join("component.json");
+    if workspace_component.exists() {
+        return read_json_file(&workspace_component);
+    }
+
+    Err(format!(
+        "component definition for {} not found in {} or {}",
+        component_id,
+        local_component.display(),
+        workspace_component.display()
+    ))
+}
+
+fn normalize_component_payload(value: Value) -> Value {
+    let is_wrapped = value
+        .as_object()
+        .map(|object| object.contains_key("contract"))
+        .unwrap_or(false);
+    if is_wrapped {
+        value
+    } else {
+        serde_json::json!({
+            "schemaVersion": TEMPLATE_SCHEMA_VERSION,
+            "engineCompatibility": TEMPLATE_ENGINE_COMPATIBILITY,
+            "contract": value
+        })
+    }
+}
+
+fn is_compatible_template_schema(package: &str, engine: &str) -> bool {
+    let parse = |raw: &str| -> Option<(u64, u64, u64)> {
+        let mut parts = raw.split('.');
+        Some((
+            parts.next()?.parse().ok()?,
+            parts.next()?.parse().ok()?,
+            parts.next()?.parse().ok()?,
+        ))
+    };
+    let Some((package_major, package_minor, package_patch)) = parse(package) else {
+        return false;
+    };
+    let Some((engine_major, engine_minor, engine_patch)) = parse(engine) else {
+        return false;
+    };
+    package_major == engine_major
+        && (package_minor > engine_minor
+            || (package_minor == engine_minor && package_patch >= engine_patch))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,5 +541,13 @@ mod tests {
                 && asset.uri.starts_with("data:font/woff2;base64,")
         }));
         assert!(package.assets.iter().any(|asset| matches!(asset.kind, AssetKind::Image)));
+    }
+
+    #[test]
+    fn schema_compatibility_allows_same_major_and_newer_patch() {
+        assert!(is_compatible_template_schema("1.0.1", "1.0.0"));
+        assert!(is_compatible_template_schema("1.1.0", "1.0.0"));
+        assert!(!is_compatible_template_schema("2.0.0", "1.0.0"));
+        assert!(!is_compatible_template_schema("1.0.0", "1.0.1"));
     }
 }

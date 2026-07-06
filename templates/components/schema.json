@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0.0",
+  "description": "Template component contract schema for milestone 7 templates",
+  "requiredFields": [
+    "id",
+    "version",
+    "displayName",
+    "category",
+    "requiredInputs",
+    "optionalInputs",
+    "semanticSlots",
+    "defaultSteps",
+    "tokenBindings",
+    "modeBehavior",
+    "preview"
+  ]
+}

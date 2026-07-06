@@ -1,0 +1,13 @@
+{
+  "id": "BeforeAfter",
+  "version": "1.0.0",
+  "displayName": "Before / After",
+  "category": "comparison",
+  "requiredInputs": ["title", "beforeLabel", "afterLabel"],
+  "optionalInputs": ["beforeBody", "afterBody", "insight"],
+  "semanticSlots": ["title", "before", "after", "insight"],
+  "defaultSteps": ["reveal_framing", "stagger_panes", "focus_after"],
+  "tokenBindings": ["color.surface.card", "color.surface.highlight", "color.chart.best", "motion.duration.normal"],
+  "modeBehavior": {"teams": "wider_panels", "pdf": "side_by_side_static"},
+  "preview": {"title": "Quality improved", "subtitle": "Visual difference and takeaway", "thumbnail": "before-after"}
+}
