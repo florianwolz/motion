@@ -75,22 +75,22 @@ impl PresentationOverlay {
             .cloned()
             .unwrap_or_else(NodePresentationState::normal)
     }
+}
 
-    #[derive(Debug, Clone, Default)]
-    pub struct ChartViewport {
-        pub x_domain: Option<[f32; 2]>,
-        pub y_domain: Option<[f32; 2]>,
-    }
+#[derive(Debug, Clone, Default)]
+pub struct ChartViewport {
+    pub x_domain: Option<[f32; 2]>,
+    pub y_domain: Option<[f32; 2]>,
+}
 
-    #[derive(Debug, Clone, Default)]
-    pub struct ChartPresentationState {
-        pub highlighted_series: HashSet<String>,
-        pub selected_datum_id: Option<String>,
-        pub data_source_override: Option<ChartDataSource>,
-        pub transforms: Vec<ChartTransform>,
-        pub viewport: ChartViewport,
-        pub annotations: Vec<String>,
-    }
+#[derive(Debug, Clone, Default)]
+pub struct ChartPresentationState {
+    pub highlighted_series: HashSet<String>,
+    pub selected_datum_id: Option<String>,
+    pub data_source_override: Option<ChartDataSource>,
+    pub transforms: Vec<ChartTransform>,
+    pub viewport: ChartViewport,
+    pub annotations: Vec<String>,
 }
 
 // ------------------------------------------------------------------
@@ -570,11 +570,14 @@ impl DocumentEngine {
 // Presentation command application
 // ------------------------------------------------------------------
 
-fn apply_presentation_command(overlay: &mut PresentationOverlay, cmd: &PresentationCommand) {
-    let chart_state = |overlay: &mut PresentationOverlay, chart: NodeId| {
-        overlay.chart_states.entry(chart).or_default()
-    };
+fn chart_state_mut(
+    overlay: &mut PresentationOverlay,
+    chart: NodeId,
+) -> &mut ChartPresentationState {
+    overlay.chart_states.entry(chart).or_default()
+}
 
+fn apply_presentation_command(overlay: &mut PresentationOverlay, cmd: &PresentationCommand) {
     match cmd {
         PresentationCommand::Reveal { target } => {
             overlay.node_states.entry(*target).or_default().visible = Some(true);
@@ -617,18 +620,22 @@ fn apply_presentation_command(overlay: &mut PresentationOverlay, cmd: &Presentat
             }
         }
         PresentationCommand::ChartHighlightSeries { chart, series } => {
-            chart_state(overlay, *chart)
+            chart_state_mut(overlay, *chart)
                 .highlighted_series
                 .insert(series.clone());
         }
         PresentationCommand::ChartSetData { chart, data_source } => {
-            chart_state(overlay, *chart).data_source_override = Some(data_source.clone());
+            chart_state_mut(overlay, *chart).data_source_override = Some(data_source.clone());
         }
         PresentationCommand::ChartApplyTransforms { chart, transforms } => {
-            chart_state(overlay, *chart).transforms.extend(transforms.iter().cloned());
+            chart_state_mut(overlay, *chart)
+                .transforms
+                .extend(transforms.iter().cloned());
         }
         PresentationCommand::ChartFilter { chart, filter } => {
-            chart_state(overlay, *chart).transforms.push(ChartTransform::Filter {
+            chart_state_mut(overlay, *chart)
+                .transforms
+                .push(ChartTransform::Filter {
                 filter: filter.clone(),
             });
         }
@@ -638,21 +645,23 @@ fn apply_presentation_command(overlay: &mut PresentationOverlay, cmd: &Presentat
             direction,
             preserve_identity,
         } => {
-            chart_state(overlay, *chart).transforms.push(ChartTransform::Sort {
+            chart_state_mut(overlay, *chart)
+                .transforms
+                .push(ChartTransform::Sort {
                 column: column.clone(),
                 direction: direction.clone(),
                 preserve_identity: *preserve_identity,
             });
         }
         PresentationCommand::ChartSelectDatum { chart, datum_id } => {
-            chart_state(overlay, *chart).selected_datum_id = Some(datum_id.clone());
+            chart_state_mut(overlay, *chart).selected_datum_id = Some(datum_id.clone());
         }
         PresentationCommand::ChartSetViewport {
             chart,
             x_domain,
             y_domain,
         } => {
-            let state = chart_state(overlay, *chart);
+            let state = chart_state_mut(overlay, *chart);
             state.viewport.x_domain = *x_domain;
             state.viewport.y_domain = *y_domain;
         }
@@ -660,7 +669,7 @@ fn apply_presentation_command(overlay: &mut PresentationOverlay, cmd: &Presentat
             chart,
             annotation_id,
         } => {
-            chart_state(overlay, *chart)
+            chart_state_mut(overlay, *chart)
                 .annotations
                 .push(annotation_id.clone());
         }
