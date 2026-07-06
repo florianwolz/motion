@@ -72,13 +72,16 @@ export class GlyphAtlas {
       this.rowHeight = 0;
     }
     if (this.cursorY + slotH > ATLAS_SIZE) {
-      // Atlas is full — reset and re-render (rare, but safe for presentations)
+      // Atlas is full — reset and re-render (rare, but safe for presentations).
+      // After clearing we fall through to place the current glyph at the top.
       console.warn("[motion] Glyph atlas full; resetting.");
       ctx.clearRect(0, 0, ATLAS_SIZE, ATLAS_SIZE);
       this.entries.clear();
       this.cursorX = GLYPH_PADDING;
       this.cursorY = GLYPH_PADDING;
       this.rowHeight = 0;
+      // If even a single glyph can't fit, give up to avoid infinite recursion
+      if (slotH > ATLAS_SIZE) return null;
     }
 
     const slotX = this.cursorX;

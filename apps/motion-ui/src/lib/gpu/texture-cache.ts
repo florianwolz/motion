@@ -10,8 +10,18 @@ type CacheEntry = GPUTexture | "loading" | "error";
 
 export class TextureCache {
   private readonly cache = new Map<string, CacheEntry>();
-  /** Whether any texture completed loading since the last flush call. */
+  /** Whether any texture completed loading since the last call to `consumeNewTextures()`. */
   hasNewTextures = false;
+
+  /**
+   * Returns and resets the `hasNewTextures` flag.  Call once per frame after
+   * checking whether a re-render is needed.
+   */
+  consumeNewTextures(): boolean {
+    const v = this.hasNewTextures;
+    this.hasNewTextures = false;
+    return v;
+  }
 
   /**
    * Return the cached GPUTexture for `uri`, or `null` if it is not yet ready.

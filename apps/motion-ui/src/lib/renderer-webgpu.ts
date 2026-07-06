@@ -453,7 +453,7 @@ export class WebGpuRenderer implements Renderer {
     context.configure({ device, format, alphaMode: "premultiplied" });
 
     const opts: Required<RendererOptions> = {
-      motionBlurStrength: options?.motionBlurStrength ?? 0,
+      motionBlurStrength: Math.max(0, Math.min(1, options?.motionBlurStrength ?? 0)),
       motionBlurSamples:  Math.max(1, Math.min(8, options?.motionBlurSamples ?? 4)),
     };
 
@@ -623,9 +623,10 @@ export class WebGpuRenderer implements Renderer {
     const nodes = tree.nodes.map((node) => {
       const prev = this.prevTransforms.get(node.id);
       if (!prev) return node;
-      // Scale motion blur contribution by per-node strength
+      // Scale motion blur contribution by per-node strength (always multiply so
+      // that a strength of 0 means no interpolation, i.e. lerpT = 0).
       const strength = node.motion_blur_strength * this.motionBlurStrength;
-      const lerpT    = strength > 0 ? t * strength : t;
+      const lerpT    = t * strength;
       return { ...node, transform: lerpTransform(prev, node.transform, lerpT) };
     });
     return { ...tree, nodes };
@@ -725,7 +726,7 @@ export class WebGpuRenderer implements Renderer {
         // Treat blur nodes the same as shape nodes but with reduced opacity
         const blurShapeData = this.buildShapeGeometry(blurNodes, vpW, vpH);
         if (blurShapeData.quadCount > 0) {
-          this.queue.writeBuffer(this.shapeVertexBuf, blurShapeData.verts.byteOffset, blurShapeData.verts.buffer as ArrayBuffer, blurShapeData.verts.byteOffset, blurShapeData.verts.byteLength);
+          this.queue.writeBuffer(this.shapeVertexBuf, 0, blurShapeData.verts.buffer as ArrayBuffer, blurShapeData.verts.byteOffset, blurShapeData.verts.byteLength);
           pass.setPipeline(this.shapePipeline);
           pass.setVertexBuffer(0, this.shapeVertexBuf);
           pass.drawIndexed(blurShapeData.quadCount * IDXS_PER_QUAD);
