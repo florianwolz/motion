@@ -218,25 +218,60 @@ Purpose: prove Manim/explainer-like data storytelling.
 Scope:
 
 ```text
-bar chart
-line chart optional if time permits
-CSV/JSON data import
-axis/tokenized styling
-animated enter
-highlight series/category
-sort bars
-update data
-annotation/callout
+Chart Platform v1 foundations:
+- unified chart data model (table + typed series + transforms)
+- shared chart grammar (axes, marks, legend, tooltip, annotations)
+- shared interactions (hover/focus/select, zoom/pan, filter, sort, drill)
+- shared animation grammar (enter/update/exit with identity-preserving transitions)
+
+Storytelling Core:
+- bar
+- line
+- area
+- scatter
+- waterfall
+- histogram
+- heatmap
+- timeline
+
+Semantic storytelling commands:
+- highlight series/category
+- dim/focus narrative state
+- sort/filter/update data with identity preservation
+- annotation/callout
 ```
 
 Success criteria:
 
 ```text
-chart looks better than normal PowerPoint chart
-bars grow from baseline
-highlight/dim works
-sort preserves bar identity
-chart uses brand tokens
+charts look better than normal PowerPoint charts
+bars grow from baseline and line/area can draw progressively
+highlight/dim/focus works semantically
+sort/filter/update preserve object identity
+chart style and motion resolve from brand tokens
+quality gates pass: deterministic rendering, accessibility defaults, export-safe fallback
+```
+
+## Chart expansion roadmap after v0
+
+```text
+Business & KPI Pack:
+combo, stacked bar/area, lollipop, pareto, funnel, bullet, waffle, table/matrix, KPI cards, gantt/sparkline
+
+Hierarchy & Flow Pack:
+sankey, treemap, sunburst, chord, alluvial, force/network, radial tree, dendrogram
+
+Statistical & Engineering Pack:
+box/violin/ridgeline/density/parallel coordinates/hexbin/contour/error bars
+then engineering/finance specializations (candlestick/OHLC, wind rose, ternary, etc.)
+
+Cross-pack cinematic capabilities:
+shared elements, camera-aware chart framing, guided reveal sequences, documentary-style presets
+
+Parity targets:
+D3 transition expressiveness + composability
+Plotly interaction ergonomics + breadth
+Seaborn statistical defaults + aesthetics
 ```
 
 ## Milestone 6 — Presentation runtime v0
