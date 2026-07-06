@@ -546,7 +546,7 @@ export class Canvas2DRenderer {
           ctx.lineTo(padX + lastPt[0] * chartW, padY + chartH);
           ctx.lineTo(padX + firstPt[0] * chartW, padY + chartH);
           ctx.closePath();
-          ctx.fillStyle = cssColor.replace(/[\d.]+\)$/, `${alpha * 0.3})`);
+          ctx.fillStyle = `rgba(${Math.round(c.r*255)},${Math.round(c.g*255)},${Math.round(c.b*255)},${(alpha * 0.3).toFixed(3)})`;
           ctx.fill();
           ctx.beginPath();
           s.points.forEach(([nx, ny], idx) => {

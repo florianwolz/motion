@@ -88,7 +88,8 @@ function renderState(container: HTMLElement, state: PresenterState): void {
   if (sceneNotesEl) {
     if (state.scene_notes) {
       sceneNotesEl.textContent = state.scene_notes;
-      sceneNotesEl.closest<HTMLElement>(".pv-section")!.style.display = "";
+      const section = sceneNotesEl.closest<HTMLElement>(".pv-section");
+      if (section) section.style.display = "";
     } else {
       const section = sceneNotesEl.closest<HTMLElement>(".pv-section");
       if (section) section.style.display = "none";

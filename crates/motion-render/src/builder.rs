@@ -572,7 +572,7 @@ fn resolve_lines(
 
     // One series per spec; default to a single series using col 0 (x) + col 1 (y).
     let specs: Vec<(String, String, usize, usize)> = if chart.series.is_empty() {
-        vec![("series-0".to_string(), "Series 1".to_string(), 0, 1.min(table.columns.len().saturating_sub(1)))]
+        vec![("series-1".to_string(), "Series 1".to_string(), 0, 1.min(table.columns.len().saturating_sub(1)))]
     } else {
         chart
             .series

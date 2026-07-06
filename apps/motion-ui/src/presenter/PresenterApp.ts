@@ -131,6 +131,10 @@ async function preloadAssets(): Promise<void> {
   const preloadTasks: Promise<void>[] = [];
 
   for (const asset of assets) {
+    // Only data-URI assets are preloaded here.  HTTP/HTTPS assets (e.g. from
+    // an external CDN) will be loaded lazily by the canvas renderer the first
+    // time they are drawn; preloading them here would require CORS preflight
+    // and is deferred to a future phase of the runtime loader.
     if (asset.kind === "font" && asset.uri.startsWith("data:font/") && asset.name) {
       preloadTasks.push(preloadFont(asset.name, asset.uri));
     } else if (asset.kind === "image" && asset.uri.startsWith("data:image/")) {

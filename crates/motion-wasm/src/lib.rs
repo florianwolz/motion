@@ -147,6 +147,8 @@ impl MotionEngine {
             total_steps,
             has_notes,
             asset_count: doc.assets.assets.len(),
+            // compiled_at is not available from a loaded document; it is set
+            // at compile time by the CLI and stored in the bundle.
             compiled_at: String::new(),
         };
         serde_json::to_string(&manifest).unwrap_or_else(|_| "{}".to_string())
