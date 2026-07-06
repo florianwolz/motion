@@ -781,7 +781,7 @@ mod tests {
         document::Document,
         node::{
             ChartDataSource, ChartFilter, ChartFilterOperator, ChartSortDirection, ChartTable,
-            NodeKind, TextNode, Transform, FrameNode,
+            FrameNode, NodeKind, TextNode, Transform,
         },
         scene::{PresentationCommand, Scene, SceneId},
     };
