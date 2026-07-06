@@ -143,8 +143,8 @@ function startTimer(container: HTMLElement): void {
   if (timerInterval) clearInterval(timerInterval);
   timerInterval = setInterval(() => {
     const timerEl = container.querySelector<HTMLElement>("#pv-timer");
-    if (!timerEl) return;
-    timerEl.textContent = formatElapsed(timerStart!);
+    if (!timerEl || timerStart === null) return;
+    timerEl.textContent = formatElapsed(timerStart);
   }, 1000);
 }
 
