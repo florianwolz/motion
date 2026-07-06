@@ -2,21 +2,33 @@
  * Presentation mode — full-screen browser runtime.
  *
  * Supports:
- *   - Keyboard / clicker navigation (Arrow, Space, B, Escape, F)
+ *   - Keyboard / clicker navigation (Arrow, Space, Enter, PageUp/PageDown, B, Escape, F)
+ *   - Click / tap advance with Shift+click to go back
  *   - Canvas render loop via WASM engine
  *   - Preflight check before starting
  *   - BroadcastChannel for presenter-view sync (same machine)
  *   - Black screen toggle
+ *   - Compiled deck bundle loading (.motiondeck)
+ *   - Asset preload pipeline (fonts, images)
+ *   - Reduced mode (simplified rendering for weak machines)
  */
 
-import { initEngine, createEngine, parseRenderTree, parsePreflight, parsePosition } from "../lib/engine.js";
+import { initEngine, createEngine, parseRenderTree, parsePreflight, parsePosition, parseBundleManifest } from "../lib/engine.js";
 import { isSupportedSavedDocument } from "../lib/documentState.js";
 import type { EngineHandle } from "../lib/engine.js";
 import { Canvas2DRenderer } from "../lib/renderer.js";
+import {
+  PRESENTER_CHANNEL_NAME,
+  PRESENTER_STATE_STORAGE_KEY,
+  isAdvanceKey,
+  isRetreatKey,
+} from "./runtime.js";
 
 let engine: EngineHandle | null = null;
 let renderer: Canvas2DRenderer | null = null;
 let isBlackScreen = false;
+let isReducedMode = false;
+let presenterViewConnected = false;
 
 /** BroadcastChannel for syncing presenter state with a second window/tab. */
 let presenterChannel: BroadcastChannel | null = null;
@@ -31,24 +43,30 @@ export async function mountPresenter(container: HTMLElement): Promise<void> {
     await initEngine();
     engine = createEngine();
 
-    // Load document: prefer URL param, then localStorage, then demo.
+    // Load document: prefer URL param bundle, then localStorage, then demo.
     await loadDocumentForPresenter();
+
+    // Preload bundled assets before starting the presentation.
+    await preloadAssets();
 
     // Run preflight.
     runPreflight(container);
 
-    // Open presenter sync channel.
+    // Open presenter sync channel and open notes window.
     try {
-      presenterChannel = new BroadcastChannel("motion-presenter");
+      presenterChannel = new BroadcastChannel(PRESENTER_CHANNEL_NAME);
+      wirePresenterChannel(container);
     } catch {
       // BroadcastChannel not available (e.g., some private browsing modes).
     }
 
     // Wire keyboard navigation.
     document.addEventListener("keydown", handleKeyDown);
+    wireCanvasNavigation(container);
 
     // Start render loop.
     startRenderLoop(container);
+    publishPresenterState();
   } catch (err) {
     console.error("Presenter init failed:", err);
     showOverlay(container, "❌ Engine failed to load", true);
@@ -60,7 +78,34 @@ export async function mountPresenter(container: HTMLElement): Promise<void> {
 async function loadDocumentForPresenter(): Promise<void> {
   if (!engine) return;
 
-  // Check for a stored document from the editor.
+  // 1. Try loading a compiled deck bundle from URL param (?bundle=<url>).
+  const bundleUrl = new URLSearchParams(window.location.search).get("bundle");
+  if (bundleUrl) {
+    try {
+      const resp = await fetch(bundleUrl);
+      if (resp.ok) {
+        const bundleJson = await resp.text();
+        engine.loadDeckBundle(bundleJson);
+        return;
+      }
+    } catch (e) {
+      console.warn("Failed to fetch bundle from URL:", e);
+    }
+  }
+
+  // 2. Try loading a bundle stored in localStorage (set by the editor's
+  //    "Compile & Open" workflow).
+  const storedBundle = localStorage.getItem("motion-compiled-bundle");
+  if (storedBundle) {
+    try {
+      engine.loadDeckBundle(storedBundle);
+      return;
+    } catch {
+      // Fall through.
+    }
+  }
+
+  // 3. Try loading a raw document from localStorage (legacy editor path).
   const stored = localStorage.getItem("motion-current-doc");
   if (stored && isSupportedSavedDocument(stored)) {
     try {
@@ -71,10 +116,69 @@ async function loadDocumentForPresenter(): Promise<void> {
     }
   }
 
-  // Fall back to the same demo document structure used by the editor.
-  // In production this would be loaded from a URL parameter or IndexedDB.
+  // 4. Fall back to the demo document.
   const { buildDemoDocumentJson } = await import("../editor/demo.js");
   engine.loadDocument(buildDemoDocumentJson());
+}
+
+// ─── Asset preloading ─────────────────────────────────────────────────────────
+
+/**
+ * Preload fonts and images bundled in the document so the first frame is
+ * immediately usable.  Blocks until all critical assets are ready or time out.
+ */
+async function preloadAssets(): Promise<void> {
+  if (!engine) return;
+
+  const docJson = engine.serializeDocument();
+  let doc: { assets?: { assets?: Array<{ kind: string; uri: string; name?: string }> } };
+  try {
+    doc = JSON.parse(docJson);
+  } catch {
+    return;
+  }
+
+  const assets = doc.assets?.assets ?? [];
+  const preloadTasks: Promise<void>[] = [];
+
+  for (const asset of assets) {
+    // Only data-URI assets are preloaded here.  HTTP/HTTPS assets (e.g. from
+    // an external CDN) will be loaded lazily by the canvas renderer the first
+    // time they are drawn; preloading them here would require CORS preflight
+    // and is deferred to a future phase of the runtime loader.
+    if (asset.kind === "font" && asset.uri.startsWith("data:font/") && asset.name) {
+      preloadTasks.push(preloadFont(asset.name, asset.uri));
+    } else if (asset.kind === "image" && asset.uri.startsWith("data:image/")) {
+      preloadTasks.push(preloadImage(asset.uri));
+    }
+  }
+
+  if (preloadTasks.length > 0) {
+    // Use a generous timeout — assets in data URIs load quickly.
+    await Promise.race([
+      Promise.allSettled(preloadTasks),
+      new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+    ]);
+  }
+}
+
+function preloadFont(family: string, uri: string): Promise<void> {
+  return new Promise((resolve) => {
+    const font = new FontFace(family, `url(${uri})`);
+    font.load().then((loaded) => {
+      document.fonts.add(loaded);
+      resolve();
+    }).catch(() => resolve());
+  });
+}
+
+function preloadImage(uri: string): Promise<void> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve();
+    img.onerror = () => resolve();
+    img.src = uri;
+  });
 }
 
 // ─── Preflight ────────────────────────────────────────────────────────────────
@@ -130,7 +234,7 @@ function startRenderLoop(container: HTMLElement): void {
 
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const dpr = window.devicePixelRatio ?? 1;
+    const dpr = isReducedMode ? 1 : (window.devicePixelRatio ?? 1);
     engine.setViewport(w, h, dpr);
 
     const treeJson = engine.render(ts);
@@ -148,28 +252,38 @@ function startRenderLoop(container: HTMLElement): void {
 
 function handleKeyDown(event: KeyboardEvent): void {
   if (!engine) return;
+  if (isAdvanceKey(event.key)) {
+    event.preventDefault();
+    engine.nextStep();
+    publishPresenterState();
+    return;
+  }
+  if (isRetreatKey(event.key)) {
+    event.preventDefault();
+    engine.previousStep();
+    publishPresenterState();
+    return;
+  }
   switch (event.key) {
-    case "ArrowRight":
-    case "ArrowDown":
-    case " ":
-      event.preventDefault();
-      engine.nextStep();
-      broadcastPosition();
-      break;
-    case "ArrowLeft":
-    case "ArrowUp":
-      event.preventDefault();
-      engine.previousStep();
-      broadcastPosition();
-      break;
     case "r":
     case "R":
       engine.restartScene();
-      broadcastPosition();
+      publishPresenterState();
       break;
     case "b":
     case "B":
       isBlackScreen = !isBlackScreen;
+      publishPresenterState();
+      break;
+    case "p":
+    case "P":
+      // Toggle reduced / performance mode.
+      isReducedMode = !isReducedMode;
+      break;
+    case "n":
+    case "N":
+      // Open / focus the presenter notes window.
+      openPresenterView();
       break;
     case "f":
     case "F":
@@ -187,9 +301,50 @@ function handleKeyDown(event: KeyboardEvent): void {
   }
 }
 
-function broadcastPosition(): void {
-  if (!engine || !presenterChannel) return;
-  presenterChannel.postMessage({ type: "position", position: engine.getPosition() });
+function wireCanvasNavigation(container: HTMLElement): void {
+  const canvas = container.querySelector<HTMLCanvasElement>("#presentation-canvas");
+  if (!canvas) return;
+  canvas.addEventListener("click", (event) => {
+    if (!engine) return;
+    if (event.shiftKey) {
+      engine.previousStep();
+    } else {
+      engine.nextStep();
+    }
+    publishPresenterState();
+  });
+}
+
+function openPresenterView(): void {
+  const url = new URL("/presenter-view", window.location.href).href;
+  window.open(url, "motion-presenter-view", "width=800,height=600,menubar=no,toolbar=no,location=no");
+}
+
+function wirePresenterChannel(container: HTMLElement): void {
+  presenterChannel?.addEventListener("message", (event: MessageEvent) => {
+    const message = event.data as { type?: string };
+    if (message.type === "presenter_view_ready") {
+      presenterViewConnected = true;
+      updatePresenterViewIndicator(container);
+      return;
+    }
+    if (message.type === "presenter_state_request") {
+      publishPresenterState();
+    }
+  });
+  updatePresenterViewIndicator(container);
+}
+
+function publishPresenterState(): void {
+  if (!engine) return;
+  const state = engine.getPresenterState();
+  try {
+    localStorage.setItem(PRESENTER_STATE_STORAGE_KEY, state);
+  } catch {
+    // Ignore storage failures in restricted browsing modes.
+  }
+  if (!presenterChannel) return;
+  presenterChannel.postMessage({ type: "presenter_state", state });
 }
 
 function updatePositionIndicator(container: HTMLElement): void {
@@ -199,6 +354,24 @@ function updatePositionIndicator(container: HTMLElement): void {
   if (el) {
     const step = pos.step_idx !== null ? `Step ${pos.step_idx + 1}` : "Intro";
     el.textContent = `Scene ${pos.scene_idx + 1} — ${step}`;
+  }
+  const rmEl = container.querySelector<HTMLElement>("#reduced-indicator");
+  if (rmEl) {
+    rmEl.textContent = isReducedMode ? "⚡ Reduced" : "";
+  }
+}
+
+function updatePresenterViewIndicator(container: HTMLElement): void {
+  const el = container.querySelector<HTMLElement>("#presenter-view-indicator");
+  if (!el) return;
+
+  const manifest = engine ? parseBundleManifest(engine.getBundleManifest()) : null;
+  if (presenterViewConnected) {
+    el.textContent = "📝 Notes connected";
+  } else if (manifest?.has_notes) {
+    el.textContent = "📝 Press N to open presenter notes";
+  } else {
+    el.textContent = "";
   }
 }
 
@@ -222,11 +395,17 @@ function buildPresenterHtml(): string {
         <div class="preflight-ready">🔍 Running preflight…</div>
       </div>
       <div id="position-indicator" class="position-indicator"></div>
+      <div id="reduced-indicator" class="reduced-indicator"></div>
+      <div id="presenter-view-indicator" class="presenter-view-indicator"></div>
       <div class="presenter-hints">
         <span>← → Navigate</span>
+        <span>Enter / PgDn Next</span>
+        <span>Shift+Click Back</span>
         <span>B Black screen</span>
         <span>F Fullscreen</span>
         <span>R Restart scene</span>
+        <span>N Notes view</span>
+        <span>P Reduced mode</span>
       </div>
     </div>
     <style>
@@ -255,6 +434,16 @@ function buildPresenterHtml(): string {
         position: absolute; bottom: 16px; right: 20px;
         font-family: system-ui, sans-serif; font-size: 12px;
         color: rgba(255,255,255,0.35); pointer-events: none; z-index: 10;
+      }
+      .reduced-indicator {
+        position: absolute; bottom: 16px; right: 160px;
+        font-family: system-ui, sans-serif; font-size: 11px;
+        color: rgba(255,200,0,0.6); pointer-events: none; z-index: 10;
+      }
+      .presenter-view-indicator {
+        position: absolute; top: 16px; right: 20px;
+        font-family: system-ui, sans-serif; font-size: 11px;
+        color: rgba(255,255,255,0.55); pointer-events: none; z-index: 10;
       }
       .presenter-hints {
         position: absolute; bottom: 16px; left: 20px;

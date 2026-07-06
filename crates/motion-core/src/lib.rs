@@ -2,6 +2,7 @@
 
 pub mod animation;
 pub mod brand;
+pub mod bundle;
 pub mod command;
 pub mod document;
 pub mod engine;
