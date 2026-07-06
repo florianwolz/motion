@@ -16,10 +16,16 @@
 
 import { parsePresenterState } from "../lib/engine.js";
 import type { PresenterState } from "../lib/engine.js";
+import {
+  PRESENTER_CHANNEL_NAME,
+  PRESENTER_STATE_STORAGE_KEY,
+  readStoredPresenterState,
+} from "./runtime.js";
 
 let timerStart: number | null = null;
 let timerInterval: ReturnType<typeof setInterval> | null = null;
 let lastState: PresenterState | null = null;
+let statePollInterval: ReturnType<typeof setInterval> | null = null;
 
 export function mountPresenterView(container: HTMLElement): void {
   container.innerHTML = buildViewHtml();
@@ -34,7 +40,7 @@ export function mountPresenterView(container: HTMLElement): void {
 
 function subscribeToPresenterChannel(container: HTMLElement): void {
   try {
-    const channel = new BroadcastChannel("motion-presenter");
+    const channel = new BroadcastChannel(PRESENTER_CHANNEL_NAME);
     channel.addEventListener("message", (event: MessageEvent) => {
       const msg = event.data as { type: string; state?: string };
       if (msg.type === "presenter_state" && msg.state) {
@@ -43,9 +49,25 @@ function subscribeToPresenterChannel(container: HTMLElement): void {
         renderState(container, state);
       }
     });
+    channel.postMessage({ type: "presenter_view_ready" });
+    channel.postMessage({ type: "presenter_state_request" });
   } catch {
     // BroadcastChannel unavailable — nothing to do.
   }
+  startStoragePolling(container);
+}
+
+function startStoragePolling(container: HTMLElement): void {
+  const refreshFromStorage = () => {
+    const state = readStoredPresenterState(localStorage.getItem(PRESENTER_STATE_STORAGE_KEY));
+    if (!state) return;
+    if (JSON.stringify(lastState) === JSON.stringify(state)) return;
+    lastState = state;
+    renderState(container, state);
+  };
+  refreshFromStorage();
+  if (statePollInterval) clearInterval(statePollInterval);
+  statePollInterval = setInterval(refreshFromStorage, 500);
 }
 
 // ─── State rendering ──────────────────────────────────────────────────────────

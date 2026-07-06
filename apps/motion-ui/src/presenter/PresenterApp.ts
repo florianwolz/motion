@@ -2,7 +2,8 @@
  * Presentation mode — full-screen browser runtime.
  *
  * Supports:
- *   - Keyboard / clicker navigation (Arrow, Space, B, Escape, F)
+ *   - Keyboard / clicker navigation (Arrow, Space, Enter, PageUp/PageDown, B, Escape, F)
+ *   - Click / tap advance with Shift+click to go back
  *   - Canvas render loop via WASM engine
  *   - Preflight check before starting
  *   - BroadcastChannel for presenter-view sync (same machine)
@@ -12,15 +13,22 @@
  *   - Reduced mode (simplified rendering for weak machines)
  */
 
-import { initEngine, createEngine, parseRenderTree, parsePreflight, parsePosition, parsePresenterState } from "../lib/engine.js";
+import { initEngine, createEngine, parseRenderTree, parsePreflight, parsePosition, parseBundleManifest } from "../lib/engine.js";
 import { isSupportedSavedDocument } from "../lib/documentState.js";
 import type { EngineHandle } from "../lib/engine.js";
 import { Canvas2DRenderer } from "../lib/renderer.js";
+import {
+  PRESENTER_CHANNEL_NAME,
+  PRESENTER_STATE_STORAGE_KEY,
+  isAdvanceKey,
+  isRetreatKey,
+} from "./runtime.js";
 
 let engine: EngineHandle | null = null;
 let renderer: Canvas2DRenderer | null = null;
 let isBlackScreen = false;
 let isReducedMode = false;
+let presenterViewConnected = false;
 
 /** BroadcastChannel for syncing presenter state with a second window/tab. */
 let presenterChannel: BroadcastChannel | null = null;
@@ -46,16 +54,19 @@ export async function mountPresenter(container: HTMLElement): Promise<void> {
 
     // Open presenter sync channel and open notes window.
     try {
-      presenterChannel = new BroadcastChannel("motion-presenter");
+      presenterChannel = new BroadcastChannel(PRESENTER_CHANNEL_NAME);
+      wirePresenterChannel(container);
     } catch {
       // BroadcastChannel not available (e.g., some private browsing modes).
     }
 
     // Wire keyboard navigation.
     document.addEventListener("keydown", handleKeyDown);
+    wireCanvasNavigation(container);
 
     // Start render loop.
     startRenderLoop(container);
+    publishPresenterState();
   } catch (err) {
     console.error("Presenter init failed:", err);
     showOverlay(container, "❌ Engine failed to load", true);
@@ -241,29 +252,28 @@ function startRenderLoop(container: HTMLElement): void {
 
 function handleKeyDown(event: KeyboardEvent): void {
   if (!engine) return;
+  if (isAdvanceKey(event.key)) {
+    event.preventDefault();
+    engine.nextStep();
+    publishPresenterState();
+    return;
+  }
+  if (isRetreatKey(event.key)) {
+    event.preventDefault();
+    engine.previousStep();
+    publishPresenterState();
+    return;
+  }
   switch (event.key) {
-    case "ArrowRight":
-    case "ArrowDown":
-    case " ":
-      event.preventDefault();
-      engine.nextStep();
-      broadcastPresenterState();
-      break;
-    case "ArrowLeft":
-    case "ArrowUp":
-      event.preventDefault();
-      engine.previousStep();
-      broadcastPresenterState();
-      break;
     case "r":
     case "R":
       engine.restartScene();
-      broadcastPresenterState();
+      publishPresenterState();
       break;
     case "b":
     case "B":
       isBlackScreen = !isBlackScreen;
-      broadcastPresenterState();
+      publishPresenterState();
       break;
     case "p":
     case "P":
@@ -291,14 +301,48 @@ function handleKeyDown(event: KeyboardEvent): void {
   }
 }
 
+function wireCanvasNavigation(container: HTMLElement): void {
+  const canvas = container.querySelector<HTMLCanvasElement>("#presentation-canvas");
+  if (!canvas) return;
+  canvas.addEventListener("click", (event) => {
+    if (!engine) return;
+    if (event.shiftKey) {
+      engine.previousStep();
+    } else {
+      engine.nextStep();
+    }
+    publishPresenterState();
+  });
+}
+
 function openPresenterView(): void {
   const url = new URL("/presenter-view", window.location.href).href;
   window.open(url, "motion-presenter-view", "width=800,height=600,menubar=no,toolbar=no,location=no");
 }
 
-function broadcastPresenterState(): void {
+function wirePresenterChannel(container: HTMLElement): void {
+  presenterChannel?.addEventListener("message", (event: MessageEvent) => {
+    const message = event.data as { type?: string };
+    if (message.type === "presenter_view_ready") {
+      presenterViewConnected = true;
+      updatePresenterViewIndicator(container);
+      return;
+    }
+    if (message.type === "presenter_state_request") {
+      publishPresenterState();
+    }
+  });
+  updatePresenterViewIndicator(container);
+}
+
+function publishPresenterState(): void {
   if (!engine || !presenterChannel) return;
   const state = engine.getPresenterState();
+  try {
+    localStorage.setItem(PRESENTER_STATE_STORAGE_KEY, state);
+  } catch {
+    // Ignore storage failures in restricted browsing modes.
+  }
   presenterChannel.postMessage({ type: "presenter_state", state });
 }
 
@@ -313,6 +357,20 @@ function updatePositionIndicator(container: HTMLElement): void {
   const rmEl = container.querySelector<HTMLElement>("#reduced-indicator");
   if (rmEl) {
     rmEl.textContent = isReducedMode ? "⚡ Reduced" : "";
+  }
+}
+
+function updatePresenterViewIndicator(container: HTMLElement): void {
+  const el = container.querySelector<HTMLElement>("#presenter-view-indicator");
+  if (!el) return;
+
+  const manifest = engine ? parseBundleManifest(engine.getBundleManifest()) : null;
+  if (presenterViewConnected) {
+    el.textContent = "📝 Notes connected";
+  } else if (manifest?.has_notes) {
+    el.textContent = "📝 Press N to open presenter notes";
+  } else {
+    el.textContent = "";
   }
 }
 
@@ -337,8 +395,11 @@ function buildPresenterHtml(): string {
       </div>
       <div id="position-indicator" class="position-indicator"></div>
       <div id="reduced-indicator" class="reduced-indicator"></div>
+      <div id="presenter-view-indicator" class="presenter-view-indicator"></div>
       <div class="presenter-hints">
         <span>← → Navigate</span>
+        <span>Enter / PgDn Next</span>
+        <span>Shift+Click Back</span>
         <span>B Black screen</span>
         <span>F Fullscreen</span>
         <span>R Restart scene</span>
@@ -378,6 +439,11 @@ function buildPresenterHtml(): string {
         font-family: system-ui, sans-serif; font-size: 11px;
         color: rgba(255,200,0,0.6); pointer-events: none; z-index: 10;
       }
+      .presenter-view-indicator {
+        position: absolute; top: 16px; right: 20px;
+        font-family: system-ui, sans-serif; font-size: 11px;
+        color: rgba(255,255,255,0.55); pointer-events: none; z-index: 10;
+      }
       .presenter-hints {
         position: absolute; bottom: 16px; left: 20px;
         display: flex; gap: 16px;
@@ -387,4 +453,3 @@ function buildPresenterHtml(): string {
     </style>
   `;
 }
-

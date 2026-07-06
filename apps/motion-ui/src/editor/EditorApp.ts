@@ -128,7 +128,13 @@ function wireToolbar(container: HTMLElement): void {
   });
   container.querySelector("#btn-present")?.addEventListener("click", () => {
     saveDocument(container, "Saved for presentation");
-    window.open("/present", "_blank");
+    window.open("/presenter-view", "motion-presenter-view", "width=800,height=600,menubar=no,toolbar=no,location=no");
+    const presenter = window.open("/present", "motion-presenter-stage");
+    if (!presenter) {
+      setToolbarMessage(container, "Presentation popup blocked by browser");
+      return;
+    }
+    presenter.focus();
   });
   container.querySelector("#btn-step-reveal")?.addEventListener("click", () => addStepFromSelection(container, "reveal"));
   container.querySelector("#btn-step-hide")?.addEventListener("click", () => addStepFromSelection(container, "hide"));
