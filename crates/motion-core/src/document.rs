@@ -107,6 +107,15 @@ pub struct AssetStore {
     pub assets: Vec<Asset>,
 }
 
+/// Loaded reusable template/component payloads available to the document.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ComponentLibrary {
+    #[serde(default)]
+    pub schema_version: Option<String>,
+    #[serde(default)]
+    pub components: HashMap<String, serde_json::Value>,
+}
+
 /// Export settings embedded in the document.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ExportSettings {
@@ -126,6 +135,8 @@ pub struct Document {
     /// Optional reference to an external brand package.
     pub brand: Option<BrandBinding>,
     pub assets: AssetStore,
+    #[serde(default)]
+    pub components: ComponentLibrary,
     pub scenes: Vec<Scene>,
     pub export_settings: ExportSettings,
     /// All nodes in the scene graph, keyed by their ID.
@@ -142,6 +153,7 @@ impl Document {
             tokens: TokenStore::default(),
             brand: None,
             assets: AssetStore::default(),
+            components: ComponentLibrary::default(),
             scenes: Vec::new(),
             export_settings: ExportSettings::default(),
             nodes: HashMap::new(),

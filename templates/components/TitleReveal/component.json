@@ -1,0 +1,13 @@
+{
+  "id": "TitleReveal",
+  "version": "1.0.0",
+  "displayName": "Title Reveal",
+  "category": "intro",
+  "requiredInputs": ["title"],
+  "optionalInputs": ["eyebrow", "subtitle", "chips"],
+  "semanticSlots": ["eyebrow", "title", "subtitle", "proof_points"],
+  "defaultSteps": ["reveal_context", "stagger_proof_points", "focus_takeaway"],
+  "tokenBindings": ["color.text.primary", "color.brand", "typography.display.size", "motion.duration.normal"],
+  "modeBehavior": {"teams": "increase_contrast", "pdf": "remove_stagger"},
+  "preview": {"title": "Q3 platform update", "subtitle": "From milestone claims to demonstrable outcomes", "thumbnail": "title-reveal"}
+}

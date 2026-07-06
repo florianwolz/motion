@@ -11,6 +11,7 @@ import {
   parseRenderTree,
   parseSceneList,
   parseSelection,
+  parseTemplateCatalog,
 } from "../lib/engine.js";
 import { isSupportedSavedDocument } from "../lib/documentState.js";
 import type { EngineHandle } from "../lib/engine.js";
@@ -140,6 +141,12 @@ function wireToolbar(container: HTMLElement): void {
   container.querySelector("#btn-step-hide")?.addEventListener("click", () => addStepFromSelection(container, "hide"));
   container.querySelector("#btn-step-focus")?.addEventListener("click", () => addStepFromSelection(container, "focus"));
   container.querySelector("#btn-step-camera")?.addEventListener("click", () => addStepFromSelection(container, "camera_focus"));
+  container.querySelector("#btn-apply-template")?.addEventListener("click", () => applySelectedTemplate(container));
+  container.querySelector("#btn-update-template")?.addEventListener("click", () => updateSelectedTemplateInstance(container));
+  container.querySelector("#template-select")?.addEventListener("change", () => {
+    resetTemplatePropertiesFromSelection(container);
+    refreshTemplatePreview(container);
+  });
   container.querySelector("#btn-share")?.addEventListener("click", () => {
     setToolbarMessage(container, "Share panel ready · Invite link copied");
   });
@@ -167,6 +174,7 @@ function wireToolbar(container: HTMLElement): void {
   container.querySelector("#btn-zoom-reset")?.addEventListener("click", () => setCanvasZoom(container, 1, "Zoom reset"));
 
   updateZoomLabel(container);
+  refreshTemplateBrowser(container);
 }
 
 function wireCanvas(container: HTMLElement): void {
@@ -335,6 +343,7 @@ function refreshEditorState(container: HTMLElement): void {
   refreshLayers(container);
   refreshInspector(container);
   refreshTimeline(container);
+  refreshTemplateBrowser(container);
   renderSelectionOverlay(container);
 }
 
@@ -727,6 +736,138 @@ function buildNodeMap(nodes: Record<string, unknown>): Map<string, SerializedNod
   return map;
 }
 
+function refreshTemplateBrowser(container: HTMLElement): void {
+  if (!engine) return;
+  const select = container.querySelector<HTMLSelectElement>("#template-select");
+  if (!select) return;
+  const catalog = parseTemplateCatalog(engine.listTemplates());
+  const current = select.value;
+  select.innerHTML = catalog
+    .map((template) => `<option value="${escapeHtml(template.contract.id)}">${escapeHtml(template.contract.displayName)}</option>`)
+    .join("");
+  if (current && catalog.some((template) => template.contract.id === current)) {
+    select.value = current;
+  }
+
+  const selected = catalog.find((template) => template.contract.id === select.value) ?? catalog[0];
+  if (selected && !select.value) select.value = selected.contract.id;
+  resetTemplatePropertiesFromSelection(container, { onlyIfEmpty: true });
+  refreshTemplatePreview(container);
+}
+
+function refreshTemplatePreview(container: HTMLElement): void {
+  if (!engine) return;
+  const select = container.querySelector<HTMLSelectElement>("#template-select");
+  const previewEl = container.querySelector<HTMLElement>("#template-preview");
+  if (!select || !previewEl) return;
+  const raw = engine.getTemplatePreview(select.value);
+  const preview = safeParseJson<Record<string, unknown>>(raw);
+  if (!preview) {
+    previewEl.innerHTML = "<p class='inspector-hint'>No preview available.</p>";
+    return;
+  }
+  const title = typeof preview.title === "string" ? preview.title : "Template";
+  const subtitle = typeof preview.subtitle === "string" ? preview.subtitle : "";
+  const thumbnail = typeof preview.thumbnail === "string" ? preview.thumbnail : "preview";
+  previewEl.innerHTML = `
+    <div class="template-preview-card">
+      <strong>${escapeHtml(title)}</strong>
+      <p>${escapeHtml(subtitle)}</p>
+      <span class="template-preview-tag">${escapeHtml(thumbnail)}</span>
+    </div>
+  `;
+}
+
+function applySelectedTemplate(container: HTMLElement): void {
+  if (!engine) return;
+  const sceneId = parseInspector(engine.inspect()).scene_id;
+  if (!sceneId) {
+    setToolbarMessage(container, "Select a scene before inserting a template");
+    return;
+  }
+
+  const select = container.querySelector<HTMLSelectElement>("#template-select");
+  const form = container.querySelector<HTMLTextAreaElement>("#template-properties");
+  const instanceInput = container.querySelector<HTMLInputElement>("#template-instance-id");
+  if (!select || !form) return;
+
+  const properties = parseTemplateProperties(form.value, container);
+  if (!properties) return;
+
+  try {
+    const instanceId = engine.applyTemplate(sceneId, select.value, JSON.stringify(properties));
+    if (instanceInput) instanceInput.value = instanceId;
+    refreshEditorState(container);
+    saveDocument(container, `Autosaved template insert: ${select.value}`);
+    setToolbarMessage(container, `Inserted template ${select.value}`);
+  } catch (error) {
+    setToolbarMessage(container, `Template insert failed: ${String(error)}`);
+  }
+}
+
+function updateSelectedTemplateInstance(container: HTMLElement): void {
+  if (!engine) return;
+  const sceneId = parseInspector(engine.inspect()).scene_id;
+  const select = container.querySelector<HTMLSelectElement>("#template-select");
+  const form = container.querySelector<HTMLTextAreaElement>("#template-properties");
+  const instanceInput = container.querySelector<HTMLInputElement>("#template-instance-id");
+  if (!sceneId || !select || !form || !instanceInput || !instanceInput.value.trim()) {
+    setToolbarMessage(container, "Provide template instance id to update");
+    return;
+  }
+
+  const properties = parseTemplateProperties(form.value, container);
+  if (!properties) return;
+
+  try {
+    engine.updateTemplateInstance(sceneId, instanceInput.value.trim(), select.value, JSON.stringify(properties));
+    refreshEditorState(container);
+    saveDocument(container, `Autosaved template update: ${select.value}`);
+    setToolbarMessage(container, `Updated template instance ${instanceInput.value.trim()}`);
+  } catch (error) {
+    setToolbarMessage(container, `Template update failed: ${String(error)}`);
+  }
+}
+
+function parseTemplateProperties(value: string, container: HTMLElement): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      setToolbarMessage(container, "Template properties must be a JSON object");
+      return null;
+    }
+    return parsed as Record<string, unknown>;
+  } catch {
+    setToolbarMessage(container, "Template properties JSON is invalid");
+    return null;
+  }
+}
+
+function resetTemplatePropertiesFromSelection(
+  container: HTMLElement,
+  options: { onlyIfEmpty?: boolean } = {},
+): void {
+  if (!engine) return;
+  const select = container.querySelector<HTMLSelectElement>("#template-select");
+  const form = container.querySelector<HTMLTextAreaElement>("#template-properties");
+  if (!select || !form) return;
+  if (options.onlyIfEmpty && form.value.trim()) return;
+
+  const catalog = parseTemplateCatalog(engine.listTemplates());
+  const selected = catalog.find((template) => template.contract.id === select.value);
+  if (!selected) return;
+  const defaults: Record<string, string> = {
+    title: selected.contract.preview.title,
+    subtitle: selected.contract.preview.subtitle,
+  };
+  selected.contract.requiredInputs.forEach((key, index) => {
+    if (!(key in defaults)) {
+      defaults[key] = `${key}: ${selected.contract.displayName} ${index + 1}`;
+    }
+  });
+  form.value = JSON.stringify(defaults, null, 2);
+}
+
 function buildShellHtml(): string {
   return `
     <div class="editor-shell">
@@ -736,6 +877,17 @@ function buildShellHtml(): string {
           <ul id="scene-list"></ul>
           <h3 class="layers-heading">Layers</h3>
           <ul id="layer-list"></ul>
+          <h3 class="layers-heading">Templates</h3>
+          <div class="template-browser">
+            <select id="template-select"></select>
+            <textarea id="template-properties" rows="8" spellcheck="false" aria-label="Template properties JSON"></textarea>
+            <input id="template-instance-id" type="text" placeholder="Instance node id (for updates)" />
+            <div class="template-actions">
+              <button id="btn-apply-template" title="Insert selected template into current scene">Insert</button>
+              <button id="btn-update-template" title="Update existing template instance">Update</button>
+            </div>
+            <div id="template-preview"></div>
+          </div>
         </aside>
         <section class="editor-canvas-wrap" id="canvas-container">
           <div class="canvas-status-row">
@@ -804,6 +956,17 @@ function buildShellHtml(): string {
       .scene-item:hover, .scene-item.active { background: #2a2a2e; }
       .step-count { color: #666; font-size: 11px; }
       .layers-heading { margin-top: 14px; }
+      .template-browser { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+      .template-browser select,
+      .template-browser textarea,
+      .template-browser input { background: #111113; border: 1px solid #2a2a2e; color: #f2f2f2; border-radius: 6px; padding: 7px 8px; font: inherit; }
+      .template-browser textarea { resize: vertical; min-height: 88px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+      .template-actions { display: flex; gap: 6px; }
+      .template-actions button { flex: 1; padding: 6px 10px; background: #2b2b34; border: 1px solid #3b3b44; border-radius: 8px; color: #f0f0f5; cursor: pointer; font-size: 12px; }
+      .template-actions button:hover { background: #3a3a45; }
+      .template-preview-card { border: 1px solid #2e2e38; border-radius: 8px; padding: 8px; background: #1a1a20; display: flex; flex-direction: column; gap: 4px; }
+      .template-preview-card p { color: #b5b5bf; font-size: 11px; }
+      .template-preview-tag { display: inline-flex; align-self: flex-start; padding: 2px 6px; border-radius: 999px; border: 1px solid #3a3a45; color: #8f93a6; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; }
       .layer-item { list-style: none; padding: 5px 8px; border-radius: 4px; cursor: pointer; color: #cfcfd4; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .layer-item:hover, .layer-item.active { background: #2a2a2e; color: #fff; }
       .editor-canvas-wrap { flex: 1; background: radial-gradient(circle at top, #25252d 0%, #16161b 46%, #111113 100%); overflow: hidden; position: relative; padding: 18px; }

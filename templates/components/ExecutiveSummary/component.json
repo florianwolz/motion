@@ -1,0 +1,13 @@
+{
+  "id": "ExecutiveSummary",
+  "version": "1.0.0",
+  "displayName": "Executive Summary",
+  "category": "summary",
+  "requiredInputs": ["headline", "pointA", "pointB", "pointC"],
+  "optionalInputs": ["kpi"],
+  "semanticSlots": ["headline", "key_point_1", "key_point_2", "key_point_3", "kpi"],
+  "defaultSteps": ["reveal_headline", "stagger_points", "focus_kpi"],
+  "tokenBindings": ["color.text.primary", "color.surface.card", "typography.body.size", "motion.duration.normal"],
+  "modeBehavior": {"executive": "reduced_motion", "pdf": "static_cards"},
+  "preview": {"title": "Key outcomes", "subtitle": "Three decisions and one KPI", "thumbnail": "executive-summary"}
+}

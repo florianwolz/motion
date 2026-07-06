@@ -6,6 +6,7 @@ use crate::{
     brand::verify_asset_hash,
     document::{AssetKind, Document},
     node::{Node, NodeKind, StyleValue},
+    templates::{catalog as template_catalog, TEMPLATE_SCHEMA_VERSION},
 };
 
 /// Overall preflight result status.
@@ -267,6 +268,67 @@ pub fn run_document_preflight(document: &Document) -> PreflightReport {
         details: None,
     });
 
+    // Component payload availability is required only for branded decks.
+    let brand_requires_components = document.brand.is_some();
+    let expected_components: Vec<String> = if brand_requires_components {
+        template_catalog()
+            .into_iter()
+            .map(|template| template.contract.id)
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    let missing_components: Vec<String> = expected_components
+        .into_iter()
+        .filter(|component_id| !document.components.components.contains_key(component_id))
+        .collect();
+    report.checks.push(PreflightCheck {
+        id: "components.available".into(),
+        category: CheckCategory::Brand,
+        severity: CheckSeverity::Warning,
+        passed: missing_components.is_empty(),
+        message: if missing_components.is_empty() {
+            format!(
+                "{} template component payload(s) available",
+                document.components.components.len()
+            )
+        } else {
+            format!(
+                "Missing template component payloads: {}",
+                missing_components.join(", ")
+            )
+        },
+        details: None,
+    });
+
+    let schema_matches = document
+        .components
+        .schema_version
+        .as_deref()
+        .map(|version| version == TEMPLATE_SCHEMA_VERSION)
+        .unwrap_or(true);
+    report.checks.push(PreflightCheck {
+        id: "components.schema_compatible".into(),
+        category: CheckCategory::Brand,
+        severity: CheckSeverity::Error,
+        passed: schema_matches,
+        message: if schema_matches {
+            format!("Template schema version {TEMPLATE_SCHEMA_VERSION} is compatible")
+        } else {
+            format!(
+                "Template schema mismatch (document={}, engine={})",
+                document
+                    .components
+                    .schema_version
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
+                TEMPLATE_SCHEMA_VERSION
+            )
+        },
+        details: None,
+    });
+
     let raw_color_nodes: Vec<_> = document
         .nodes
         .values()
@@ -422,5 +484,18 @@ mod tests {
             .find(|check| check.id == "assets.hashes_valid")
             .unwrap();
         assert!(asset_check.passed);
+    }
+
+    #[test]
+    fn flags_component_schema_mismatch() {
+        let mut document = sample_document();
+        document.components.schema_version = Some("0.0.1".into());
+        let report = run_document_preflight(&document);
+        let schema_check = report
+            .checks
+            .iter()
+            .find(|check| check.id == "components.schema_compatible")
+            .unwrap();
+        assert!(!schema_check.passed);
     }
 }

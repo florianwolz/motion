@@ -10,12 +10,14 @@ use thiserror::Error;
 
 use crate::{
     command::{
-        AddStepCommand, Command, CreateNodeCommand, DeleteNodeCommand, GroupNodesCommand,
-        MoveNodeCommand, SetPropertyCommand, SetStepCommandsCommand, UngroupNodesCommand,
+        AddStepCommand, ApplyTemplateCommand, Command, CreateNodeCommand, DeleteNodeCommand,
+        GroupNodesCommand, MoveNodeCommand, SetPropertyCommand, SetStepCommandsCommand,
+        UngroupNodesCommand,
     },
     document::Document,
     node::{ChartDataSource, ChartTransform, GroupNode, Node, NodeId, NodeKind},
     scene::{CameraState, PresentationCommand, Scene, SceneId, Step, StepId},
+    templates,
     tokens::TokenValue,
 };
 
@@ -32,6 +34,8 @@ pub enum EngineError {
     InvalidPropertyPath(String),
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+    #[error("template error: {0}")]
+    Template(String),
 }
 
 // ------------------------------------------------------------------
@@ -177,7 +181,7 @@ impl DocumentEngine {
             Command::UngroupNodes(c) => self.cmd_ungroup_nodes(c),
             Command::AddStep(c) => self.cmd_add_step(c),
             Command::SetStepCommands(c) => self.cmd_set_step_commands(c),
-            Command::ApplyTemplate(_) => Ok(()), // TODO: template engine
+            Command::ApplyTemplate(c) => self.cmd_apply_template(c),
             Command::SetBrand(c) => {
                 self.document.brand = Some(crate::document::BrandBinding {
                     name: c.name,
@@ -190,9 +194,16 @@ impl DocumentEngine {
                     .tokens
                     .tokens
                     .insert(c.path, TokenValue::Scalar(c.value));
+                templates::re_resolve_template_instances(&mut self.document);
                 Ok(())
             }
         }
+    }
+
+    fn cmd_apply_template(&mut self, c: ApplyTemplateCommand) -> Result<(), EngineError> {
+        templates::apply_template(&mut self.document, &c)
+            .map(|_| ())
+            .map_err(EngineError::Template)
     }
 
     fn cmd_create_node(&mut self, c: CreateNodeCommand) -> Result<(), EngineError> {
@@ -777,7 +788,7 @@ fn as_f32(v: &serde_json::Value, path: &str) -> Result<f32, EngineError> {
 mod tests {
     use super::*;
     use crate::{
-        command::{AddStepCommand, CreateNodeCommand, DeleteNodeCommand, SetPropertyCommand},
+        command::{AddStepCommand, ApplyTemplateCommand, CreateNodeCommand, DeleteNodeCommand, SetPropertyCommand},
         document::Document,
         node::{
             ChartDataSource, ChartFilter, ChartFilterOperator, ChartSortDirection, ChartTable,
@@ -1138,5 +1149,26 @@ mod tests {
             Some(ChartDataSource::Inline { .. })
         ));
         assert_eq!(state.transforms.len(), 2);
+    }
+
+    #[test]
+    fn apply_template_command_generates_component_instance_and_supports_undo() {
+        let (doc, scene_id) = make_doc_with_scene();
+        let mut engine = DocumentEngine::new(doc);
+        engine
+            .apply_command(Command::ApplyTemplate(ApplyTemplateCommand {
+                scene_id,
+                template_id: "TitleReveal".into(),
+                properties: serde_json::json!({
+                    "title": "Milestone 7",
+                    "subtitle": "Template system enabled"
+                }),
+                instance_node_id: None,
+            }))
+            .unwrap();
+
+        assert!(engine.document().nodes.values().any(|node| matches!(node.data, NodeKind::ComponentInstance(_))));
+        assert!(engine.undo());
+        assert!(!engine.document().nodes.values().any(|node| matches!(node.data, NodeKind::ComponentInstance(_))));
     }
 }

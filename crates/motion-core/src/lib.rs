@@ -10,6 +10,7 @@ pub mod layout;
 pub mod node;
 pub mod preflight;
 pub mod scene;
+pub mod templates;
 pub mod tokens;
 
 pub use document::Document;

@@ -1,0 +1,13 @@
+{
+  "id": "SimpleArchitectureDiagram",
+  "version": "1.0.0",
+  "displayName": "Simple Architecture Diagram",
+  "category": "diagram",
+  "requiredInputs": ["title", "systemA", "systemB", "systemC"],
+  "optionalInputs": ["flowLabel"],
+  "semanticSlots": ["title", "source_system", "processing_system", "target_system", "flow"],
+  "defaultSteps": ["reveal_nodes", "reveal_flow", "focus_target"],
+  "tokenBindings": ["color.surface.panel", "color.brand", "typography.body.size", "motion.duration.normal"],
+  "modeBehavior": {"technical": "show_labels", "pdf": "collapse_animation"},
+  "preview": {"title": "Runtime pipeline", "subtitle": "Input → engine → presenter", "thumbnail": "simple-architecture-diagram"}
+}

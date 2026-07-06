@@ -332,6 +332,15 @@ user can build a polished short deck mostly from templates
 components adapt when tokens change
 ```
 
+Acceptance checklist for milestone completion:
+
+```text
+all 7 templates are insertable from the editor template browser
+each inserted template is animated, tokenized, and parameterized
+template instances update when token values change
+short polished demo deck can be assembled primarily from templates without manual scene construction
+```
+
 ## Milestone 8 — Export fallback v0
 
 Purpose: make the product safe.

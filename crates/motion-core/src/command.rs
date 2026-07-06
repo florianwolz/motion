@@ -104,6 +104,8 @@ pub struct ApplyTemplateCommand {
     pub scene_id: SceneId,
     pub template_id: String,
     pub properties: serde_json::Value,
+    #[serde(default)]
+    pub instance_node_id: Option<NodeId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

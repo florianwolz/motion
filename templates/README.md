@@ -14,10 +14,11 @@ templates/
 │       ├── logos/              # logo assets
 │       ├── icons/              # icon set
 │       └── licenses/           # font and asset license metadata
-└── components/
-    └── <component-name>/
-        ├── component.json      # component definition
-        └── preview.png         # optional preview thumbnail
+├── components/
+│   ├── schema.json            # shared template contract schema version
+│   └── <component-name>/
+│       ├── component.json     # component definition/contract
+│       └── preview.png        # optional preview thumbnail
 ```
 
 ## Brand packages
