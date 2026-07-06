@@ -336,13 +336,14 @@ function wirePresenterChannel(container: HTMLElement): void {
 }
 
 function publishPresenterState(): void {
-  if (!engine || !presenterChannel) return;
+  if (!engine) return;
   const state = engine.getPresenterState();
   try {
     localStorage.setItem(PRESENTER_STATE_STORAGE_KEY, state);
   } catch {
     // Ignore storage failures in restricted browsing modes.
   }
+  if (!presenterChannel) return;
   presenterChannel.postMessage({ type: "presenter_state", state });
 }
 
